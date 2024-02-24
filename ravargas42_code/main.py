@@ -16,9 +16,9 @@ class Trader:
 	def MidPrice(self, order_depth: OrderDepth) -> int:
 		best_ask: int = (order_depth.sell_orders.items())[0]
 		best_bid: int = (order_depth.buy_orders.items())[0]
-		MidPrice: int = int((best_ask + best_bid) / 2)
+		pm : int = int((best_ask + best_bid) / 2)
 
-		return MidPrice
+		return pm
 	
 	def run(self, state: TradingState):
 		"""
