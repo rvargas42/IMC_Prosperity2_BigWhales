@@ -13,12 +13,17 @@ class Trader:
 	_Long_limit: int = 10
 	_Short_limit: int = -10
 
+	def Spread(self, order_depth: OrderDepth) -> int:
+		best_ask: int = (order_depth.sell_orders.items())[0]
+		best_bid: int = (order_depth.buy_orders.items())[0]
+		S = best_ask - best_bid
+
 	def MidPrice(self, order_depth: OrderDepth) -> int:
 		best_ask: int = (order_depth.sell_orders.items())[0]
 		best_bid: int = (order_depth.buy_orders.items())[0]
-		pm : int = int((best_ask + best_bid) / 2)
+		MP : int = int((best_ask + best_bid) / 2)
 
-		return pm
+		return MP
 	
 	def run(self, state: TradingState):
 		"""
