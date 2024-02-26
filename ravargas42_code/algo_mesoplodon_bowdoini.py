@@ -45,14 +45,16 @@ class Trader:
 
 		@staticmethod
 		def _Spread(order_depth: OrderDepth) -> int:
-			best_ask: int = list(order_depth.sell_orders.items())[0]
-			best_bid: int = list(order_depth.buy_orders.items())[0]
+			best_ask: int = list(order_depth.sell_orders.keys())[0]
+			best_bid: int = list(order_depth.buy_orders.keys())[0]
 			S: int = best_ask - best_bid
+
+			return S
 
 		@staticmethod
 		def _MidPrice(order_depth: OrderDepth) -> int:
-			best_ask: int = list(order_depth.sell_orders.items())[0]
-			best_bid: int = list(order_depth.buy_orders.items())[0]
+			best_ask: int = list(order_depth.sell_orders.keys())[0]
+			best_bid: int = list(order_depth.buy_orders.keys())[0]
 			MP : int = int((best_ask + best_bid) / 2)
 
 			return MP
@@ -64,14 +66,14 @@ class Trader:
 			'''
 			numerator, denominator, OBI = 0, 0, 0
 			# L -> max depth of market.
-			L : int = np.min([len(order_depth.buy_orders), len(order_depth.buy_orders)]) #Dict[int,int] = {9:10, 10:11, 11:4}
+			L : int = np.min([len(order_depth.buy_orders), len(order_depth.sell_orders)]) #Dict[int,int] = {9:10, 10:11, 11:4}
 			# Calculate imbalance:
 			for i in range(L):
 				buy_level_Q = list(order_depth.buy_orders.values())[i]
-				sell_level_Q = list(order_depth.sell_orders.values())[i]
+				sell_level_Q = -1 * (list(order_depth.sell_orders.values())[i])
 				numerator += buy_level_Q - sell_level_Q
 				denominator += buy_level_Q + sell_level_Q
-				if i == L:
+				if i + 1 == L:
 					OBI = numerator / denominator
 
 			return OBI
@@ -93,33 +95,30 @@ class Trader:
 			orders: List[Order] = []
 			# Define a fair value for the PRODUCT. Might be different for each tradable item
 			acceptable_price = MidPrice * (1 + OBI)
-						# All print statements output will be delivered inside test results
+			best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
+			best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
+
+			print("OBI: ", OBI)			
 			print("Acceptable price : " + str(acceptable_price))
 			print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
 	
 			if len(order_depth.sell_orders) != 0:
-				best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-				if int(best_ask) < acceptable_price and self._Long_limit != -10:
-					# In case the lowest ask is lower than our fair value,
-					# This presents an opportunity for us to buy cheaply
-					# The code below therefore sends a BUY order at the price level of the ask,
-					# with the same quantity
-					# We expect this order to trade with the sell order
-					print("BUY", str(-best_ask_amount) + "x", best_ask)
-					orders.append(Order(product, best_ask, -best_ask_amount))
+				if OBI > 0.50:
+					BuyQ = -int(best_bid_amount*np.abs(OBI))
+					print("BUY", str(BuyQ) + "x", best_ask)
+					orders.append(Order(product, best_bid - 1, BuyQ))
 	
 			if len(order_depth.buy_orders) != 0:
-				best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-				if int(best_bid_amount) > acceptable_price:
-										# Similar situation with sell orders
-					print("SELL", str(best_bid_amount) + "x", best_bid)
-					orders.append(Order(product, best_bid, -best_bid_amount))
+				if OBI < -0.50:
+					SellQ = -int(best_ask_amount*np.abs(OBI))
+					print("SELL", str(best_ask_amount) + "x", best_bid)
+					orders.append(Order(product, best_ask + 1, SellQ))
 			
 			result[product] = orders
 	
 			# String value holding Trader state data required. 
 				# It will be delivered as TradingState.traderData on next execution.
-		traderData = "SAMPLE" 
+		traderData = "Test"
 		
 				# Sample conversion request. Check more details below. 
 		conversions = 1
