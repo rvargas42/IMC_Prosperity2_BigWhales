@@ -1,6 +1,6 @@
 #REQUIRED CLASSES
 from datamodel import OrderDepth, UserId, TradingState, Order
-from typing import List
+from typing import List, Dict
 import string
 #Utils libraries
 import math
@@ -13,17 +13,37 @@ class Trader:
 	_Long_limit: int = 10
 	_Short_limit: int = -10
 
-	def Spread(self, order_depth: OrderDepth) -> int:
-		best_ask: int = (order_depth.sell_orders.items())[0]
-		best_bid: int = (order_depth.buy_orders.items())[0]
-		S = best_ask - best_bid
+	class Utils:
 
-	def MidPrice(self, order_depth: OrderDepth) -> int:
-		best_ask: int = (order_depth.sell_orders.items())[0]
-		best_bid: int = (order_depth.buy_orders.items())[0]
-		MP : int = int((best_ask + best_bid) / 2)
+		def _Spread(self, order_depth: OrderDepth) -> int:
+			best_ask: int = (order_depth.sell_orders.items())[0]
+			best_bid: int = (order_depth.buy_orders.items())[0]
+			S: int = best_ask - best_bid
 
-		return MP
+		def _MidPrice(self, order_depth: OrderDepth) -> int:
+			best_ask: int = (order_depth.sell_orders.items())[0]
+			best_bid: int = (order_depth.buy_orders.items())[0]
+			MP : int = int((best_ask + best_bid) / 2)
+
+			return MP
+		
+		def _OrderBookImbalance(self, order_depth: OrderDepth) -> Dict[str, int]:
+			'''
+			references: https://towardsdatascience.com/price-impact-of-order-book-imbalance-in-cryptocurrency-markets-bf39695246f6
+			'''
+			numerator, denominator, OBI = 0, 0, 0
+			# L -> max depth of market.
+			L : int = np.min([len(order_depth.buy_orders), len(order_depth.buy_orders)]) #Dict[int,int] = {9:10, 10:11, 11:4}
+			# Calculate imbalance:
+			for i in range(L):
+				buy_level_Q = list(order_depth.buy_orders.values())[i]
+				sell_level_Q = list(order_depth.sell_orders.values())[i]
+				numerator += buy_level_Q - sell_level_Q
+				denominator += buy_level_Q + sell_level_Q
+				if i == L:
+					OBI = numerator / denominator
+
+			return OBI
 	
 	def run(self, state: TradingState):
 		"""
@@ -60,8 +80,8 @@ class Trader:
 					orders.append(Order(product, best_ask, -best_ask_amount))
 	
 			if len(order_depth.buy_orders) != 0:
-				best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-				if int(best_bid) > acceptable_price:
+				best_bid, best_bid_amount = list(order_depth.buy_orders.items())[2]
+				if int(best_bid_amount) >= 24:
 										# Similar situation with sell orders
 					print("SELL", str(best_bid_amount) + "x", best_bid)
 					orders.append(Order(product, best_bid, -best_bid_amount))
