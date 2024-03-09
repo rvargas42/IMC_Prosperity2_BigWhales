@@ -3,6 +3,13 @@ from typing import List
 import string
 
 class Bot:
+
+	def __init__(self, bearish = 1, bullish = 0, random_state = None) -> None:
+		
+		#set of parameters to generate different bots
+		self.bullish = 0
+		self.bear = 1
+		self.random_state = random_state
 	
 	def run(self, state: TradingState):
 		"""
@@ -53,4 +60,4 @@ class Bot:
 		
 				# Sample conversion request. Check more details below. 
 		conversions = 1
-		return result, conversions, traderData
+		return result
