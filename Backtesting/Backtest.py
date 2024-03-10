@@ -89,26 +89,112 @@ class Backtest(Config):
 		orders = sum(orders, []) # [order(), order(), ...]
 		self.Algo_orders = orders
 	
-	def IsQueueMatchable(self):
+	def IsMatchable(self):
 		'''
-		Checks if the queue has orders that can be matched
+		Checks if the order can be matched
 		'''
-
-	def MatchOrder(self):
-		
-		'''
-		Entry Method to Match Orders.
-		
-		'''
-		productName, O_q, O_price = self.Current_Order #retrive the order object
 
 	def GetBestBidAsk(self):
 		'''
-		Takes the Queue and makes an order depth book
+		Takes the Queue and
 		'''
+		self.Best_Bid, self.Best_Ask = None, None
+		symbol = self.Current_Order.symbol
+		#Get best bid:
+		for price_level in reversed(list(self.OrderBookStructure[symbol]["BUY"].keys())):
+			price_level_list = self.OrderBookStructure[symbol]["BUY"][price_level]
+			if price_level_list:
+				self.Best_Bid = price_level_list[0] #first object_id at best bid price level
+				break
+		for price_level in list(self.OrderBookStructure[symbol]["SELL"].keys()):
+			price_level_list = self.OrderBookStructure[symbol]["SELL"][price_level]
+			if price_level_list:
+				self.Best_Ask = price_level_list[0] #first object_id at best ask price level
+				break
 
-	def OrderBookStruct(self): #TODO build this structure
-		pass
+	def BuildOrderDepth(self):
+		self.OrderDepth = {p: OrderDepth() for p in self.state.listings.keys()}
+		for p in self.state.listings.keys():
+			top3_Buy, top3_Sell = list(self.OrderBookStructure[p]["BUY"].keys())[-3:], list(self.OrderBookStructure[p]["SELL"].keys())[:3]
+			buy_orders, sell_orders = {}, {}
+			for level in top3_Buy:
+				for element in self.OrderBookStructure[p]["BUY"][level]:
+					buy_orders[level] += element.quantity
+			for level in top3_Sell:
+				for element in self.OrderBookStructure[p]["BUY"][level]:
+					sell_orders[level] += element.quantity
+			self.OrderDepth[p].buy_orders = buy_orders
+			self.OrderDepth[p].sell_orders = sell_orders
+		
+		self.state.order_depths = self.OrderDepth
+
+	def SendOrder2End(self):
+		'''
+		Util function to edit the self.All_Orders list orders to the end to be able to regen a new ob structure with new queues for each level
+		'''
+		#we send self.Current_Order and self.BestBidOrder/self.BestAskOrder
+		if self.side == "BUY": #to distinguish between bestbidorder bestaskorder and send back the correct object
+			append_objects = [self.BestAskOrder, self.Current_Order]
+			for orderObject in append_objects:
+				self.All_Orders.remove(orderObject)
+				self.All_Orders.append(orderObject)
+		if self.side == "SELL":
+			append_objects = [self.BestBidOrder, self.Current_Order] #get objects that correspond to given hash
+			for orderObject in append_objects:
+				self.All_Orders.remove(orderObject)
+				self.All_Orders.append(orderObject)
+
+	def MatchOrderBook(self):
+		
+		'''
+		Entry Method to Match Orders. This method will edit queue objects and edit self.Matched bool and rerun OrderBookStruct
+		'''
+		self.BuildFifoQueue() #this is the reference queue to order objects and edit them
+		for order_id, orderObject in self.FiFoQueue.items():
+			self.Current_Order = orderObject
+			self.GetBestBidAsk() #this is where the program will be able to update state of orderbook so we have to edit the orderbookstructure
+			symbol = orderObject.symbol
+			self.side = order_side = "BUY" if orderObject.quantity > 0 else "SELL"
+			self.matched_side = match_side = "BUY" if order_side == "SELL" else "SELL"
+			self.match_side_slot = self.OrderBookStructure[symbol][match_side]
+			if orderObject.price in list(self.match_side_slot.keys()): #if price is found in opposite side we edit attributes for object at best bid best ask
+				#Filter for cases where orders are market orders. This is the only case where an order matched will be edited and sent back at the price queue
+				if order_side == "BUY" and orderObject.price >= self.Best_Ask: #we will match with the best ask object
+					#get the best_ask object
+					self.BestAskOrder = BestAskOrder = self.FiFoQueue[self.Best_Ask]
+					#we exhaust the quantity for both orders
+					BestAskOrder.quantity = max(0, orderObject.quantity + BestAskOrder.quantity)
+					orderObject.quantity = max(0, orderObject.quantity + BestAskOrder.quantity)
+					#update order of referenced objects at self.All_orders
+					self.SendOrder2End()
+					#Rerun and update the orderbook queues
+					self.OrderBookStruct()
+				if order_side == "SELL" and orderObject.price <= self.Best_Bid: #we will match with the best ask object
+					#get the best_ask object
+					self.BestBidOrder = BestBidOrder = self.FiFoQueue[self.Best_Bid]
+					#we exhaust the quantity for both orders
+					BestBidOrder.quantity = max(0, orderObject.quantity + BestBidOrder.quantity)
+					orderObject.quantity = max(0, orderObject.quantity + BestBidOrder.quantity)
+					#update order of referenced objects at self.All_orders
+					self.SendOrder2End()
+					#Rerun and update the orderbook queues
+					self.OrderBookStruct()
+			else:
+				continue
+
+	def OrderBookStruct(self):
+		for orderObject in self.All_Orders:
+			prod = orderObject.symbol
+			price = orderObject.price
+			side = "BUY" if orderObject.quantity > 0 else "SELL"
+			if price not in list(self.OrderBookStructure[prod][side].keys()):
+				self.OrderBookStructure[prod][side][price] = [hash(orderObject)]
+			else:
+				(self.OrderBookStructure[prod][side][price]).append(hash(orderObject))
+
+	def BuildFifoQueue(self):
+
+		self.FiFoQueue = {hash(order):order for order in self.All_Orders}
 
 	def FIFOMatch(self) -> TradingState:
 		'''
@@ -126,28 +212,23 @@ class Backtest(Config):
 					- 3rd - update the order_depth
 					- 4rth - repeat until no matches can be done
 					- 5th - if no more matches then proceed to next iteration
-			2. if the order is partially filled then the order is edited and sent to the back of the queue as a market sell/buy
-			3. Once all the queue has been processed then we return the new order depth 
+			2. if the order is partially filled then the order is edited and sent to the back of the queue
+			3. Once all the queue has been processed then we return the new order depth
 		'''
 
-		#make orders queue
+		#make initial order objects queue
 		self.All_Orders = self.Algo_orders + self.Market_orders
-		#Make a searchabke dict structure with available order objects by product, side and price level
+		#Populate the searchable structure to be able to edit queues for each price level.
 		self.OrderBookStruct()
-		#exit matching function if no Queue is empty
+		#exit matching function if no Queue is empty or no matches can be made
 		if not self.OrderBookStructure:
 			return
 		while not self.Matched:
-			#start iterating the queue until all orders are processed
-			for order_id, orderObject in self.OrderBookStructure.items():
-				self.Current_Order = orderObject
-				self.Current_Order_Side = "BUY" if orderObject.quantity > 0 else "SELL"
-				self.MatchOrder()
-			
-	def Calculate(self): #TODO: calculate this results and edit instance attributes
+			self.MatchOrderBook()
+
+	def Calculate(self):
 		Backtest_results = []
 		return Backtest_results
-
 
 	def GenerateBots(self,N: int) -> List[Bot]:
 		bots = []
