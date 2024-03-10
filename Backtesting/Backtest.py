@@ -5,7 +5,6 @@ Desc: Script that simulates market trades between bots
 Created:  2024-03-06T17:39:08.622Z
 Modified: !date!
 """
-
 from Bot import Bot
 from datamodel import TradingState, Order, Listing, OrderDepth, Trade, Time, Symbol, Product, Position, UserId, ObservationValue
 import os, sys
@@ -123,7 +122,6 @@ class Backtest(Config):
 					sell_orders[level] += element.quantity
 			self.OrderDepth[p].buy_orders = buy_orders
 			self.OrderDepth[p].sell_orders = sell_orders
-		
 		self.state.order_depths = self.OrderDepth
 
 	def SendOrder2End(self):
@@ -134,13 +132,19 @@ class Backtest(Config):
 		if self.side == "BUY": #to distinguish between bestbidorder bestaskorder and send back the correct object
 			append_objects = [self.BestAskOrder, self.Current_Order]
 			for orderObject in append_objects:
-				self.All_Orders.remove(orderObject)
-				self.All_Orders.append(orderObject)
+				if orderObject.quantity == 0:
+					self.All_Orders.remove(orderObject)
+				else:
+					self.All_Orders.remove(orderObject)
+					self.All_Orders.append(orderObject)
 		if self.side == "SELL":
 			append_objects = [self.BestBidOrder, self.Current_Order] #get objects that correspond to given hash
 			for orderObject in append_objects:
-				self.All_Orders.remove(orderObject)
-				self.All_Orders.append(orderObject)
+				if orderObject.quantity == 0:
+					self.All_Orders.remove(orderObject)
+				else:
+					self.All_Orders.remove(orderObject)
+					self.All_Orders.append(orderObject)
 
 	def MatchOrderBook(self):
 		
@@ -191,7 +195,6 @@ class Backtest(Config):
 				(self.OrderBookStructure[prod][side][price]).append(hash(orderObject))
 
 	def BuildFifoQueue(self):
-
 		self.FiFoQueue = {hash(order):order for order in self.All_Orders}
 
 	def FIFOMatch(self) -> TradingState:
@@ -220,7 +223,8 @@ class Backtest(Config):
 		if not self.OrderBookStructure:
 			return
 		while not self.Matched:
-			self.MatchOrderBook()
+			self.MatchOrderBook() #start to match orders until no matches are available
+		self.BuildOrderDepth() #enter the structure and extract the next state.order_depths
 
 	def Calculate(self):
 		Backtest_results = []
@@ -237,7 +241,6 @@ class Backtest(Config):
 		return bots
 	
 	def BotExecution(self) -> List[Order]:
-
 		bots: List[Bot] = self.GenerateBots(self.max_bots)
 		bot_results = [] #[[bot 1 orders],[]]
 		for bot in bots:
