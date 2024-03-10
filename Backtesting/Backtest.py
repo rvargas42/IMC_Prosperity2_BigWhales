@@ -200,7 +200,6 @@ class Backtest(Config):
 		Functioning:
 			0. Build Queue, add a hash value and shuffle it.
 			1. given an initial queue of Order Objects we start matching orders:
-			   1.1. we have to consider between market makers and takers:
 				- when we enter the queue we have to construct take a best bid and ask
 				- then after having a reference depth we start the match logic
 				- this logic will have to differentiate between takers and makers.
@@ -211,7 +210,7 @@ class Backtest(Config):
 					- 4rth - repeat until no matches can be done
 					- 5th - if no more matches then proceed to next iteration
 			2. if the order is partially filled then the order is edited and sent to the back of the queue
-			3. Once all the queue has been processed then we return the new order depth
+			3. Once all the queue has been processed then we return the last order depth
 		'''
 		#make initial order objects queue
 		self.All_Orders = self.Algo_orders + self.Market_orders
