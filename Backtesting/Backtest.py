@@ -50,7 +50,6 @@ class Backtest(Config):
 	'''
 
 	def __init__(self,name) -> None:
-
 		self.mid_price = 0
 		self.execution_times : List[float] = []
 		self.algo_PNL : List[float] = []
@@ -78,7 +77,6 @@ class Backtest(Config):
 			print(f"Error while getting the class Trader, be sure to name the class trader in {module_name}: {e}")
 
 	def RunMyAlgo(self) -> List[Order]:
-		 
 		my_algo = self.trader_instance
 		start_time = time.perf_counter()
 		algo_results = my_algo.run(self.state)[0] #returns just the results dictionary
@@ -96,7 +94,7 @@ class Backtest(Config):
 
 	def GetBestBidAsk(self):
 		'''
-		Takes the Queue and
+		Takes the Queue and extracts the best bid and ask id
 		'''
 		self.Best_Bid, self.Best_Ask = None, None
 		symbol = self.Current_Order.symbol
@@ -147,7 +145,7 @@ class Backtest(Config):
 	def MatchOrderBook(self):
 		
 		'''
-		Entry Method to Match Orders. This method will edit queue objects and edit self.Matched bool and rerun OrderBookStruct
+		Entry method to match Order objects. This method will edit queue objects and edit self.Matched bool and rerun OrderBookStruct
 		'''
 		self.BuildFifoQueue() #this is the reference queue to order objects and edit them
 		for order_id, orderObject in self.FiFoQueue.items():
@@ -215,7 +213,6 @@ class Backtest(Config):
 			2. if the order is partially filled then the order is edited and sent to the back of the queue
 			3. Once all the queue has been processed then we return the new order depth
 		'''
-
 		#make initial order objects queue
 		self.All_Orders = self.Algo_orders + self.Market_orders
 		#Populate the searchable structure to be able to edit queues for each price level.
@@ -260,10 +257,8 @@ class Backtest(Config):
 			#new state calculated with bot orders and algo orders
 			self.FIFOMatch()
 		backtest_results = self.Calculate()
-		return backtest_results #{"Average_Execution_time_ms": [500, ...], "algo_PNL": [1000, ...], "Benchmark": [500,...], "MaxDrawdown": -10%, "Sharpe":1.5}
-	
+		return backtest_results #{"Execution_times_ms": [500, ...], "algo_PNL": [1000, ...], "Benchmark": [500,...], "MaxDrawdown": -10%, "Sharpe":1.5}
 
 if __name__ == '__main__':
-
 	backtester = Backtest("algo_mesoplodon_bowdoini.py")
 	backtester.RunMyAlgo()
