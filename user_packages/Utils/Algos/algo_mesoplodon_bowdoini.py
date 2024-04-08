@@ -7,10 +7,10 @@ Modified: !date!
 """
 
 #REQUIRED CLASSES
-from  datamodel import OrderDepth, UserId, TradingState, Order
+from  Utils.datamodel import OrderDepth, UserId, TradingState, Order
 from typing import List, Dict
-import string
 #support libraries
+import jsonpickle as encoder
 import math
 import numpy as np
 import pandas as pd
@@ -164,12 +164,12 @@ class MarketMakingModels:
 		:returns: Given an orderbook state it returns the set of bid ask orders.
 		'''
 		
-		def _ReservationPrice(s,q,t, T, gamma, variance):
+		def _ReservationPrice(s,q,t, T, gamma, variance) -> int:
 			#Calculate the reservation price based on target inventory.
 			r = s - q * gamma * variance * (T - t)
 			return r
 		
-		def _OptimalSpread(gamma, variance, T, t, k):
+		def _OptimalSpread(gamma, variance, T, t, k) -> int:
 			#Determine the optimal bid and ask spread.
 			delta = gamma * variance *(T - t) + (2/gamma) * np.log((1 + (gamma / k))) #where k is order book liquidity or depth (Levels)
 			return delta

@@ -20,6 +20,8 @@ ID = int
 
 class Config:
 
+	initial_price = 10
+
 	#this is the initial trading state to start simulations
 	starting_state: TradingState = TradingState(
 		traderData="",
@@ -29,8 +31,8 @@ class Config:
 			"PRODUCT2": Listing(symbol="PRODUCT2", product="PRODUCT2", denomination= "SEASHELLS"),
 		},
 		order_depths = {
-			"PRODUCT1": OrderDepth(),
-			"PRODUCT2": OrderDepth(),
+			"PRODUCT1": None,
+			"PRODUCT2": None,
 		},
 		own_trades = {"PRODUCT1": [],"PRODUCT2": []},
 		market_trades = {
@@ -62,6 +64,8 @@ class Backtest(Config):
 		self.Current_Order_Side: str = None
 		self.OrderBookStructure = {k:{"BUY":{},"SELL":{}} for k in self.listings} #searchable structure to match orders and edit matched objects
 		self.Matched = []
+
+
 
 		try:
 			module_name = f'Algos.{name[:-3] if name.endswith(".py") else name}'
@@ -182,6 +186,7 @@ class Backtest(Config):
 					#Rerun and update the orderbook queues
 					self.OrderBookStruct()
 			else:
+				self.Matched = True
 				continue
 
 	def OrderBookStruct(self):
@@ -219,6 +224,7 @@ class Backtest(Config):
 		self.All_Orders = self.Algo_orders + self.Market_orders
 		#Populate the searchable structure to be able to edit queues for each price level.
 		self.OrderBookStruct()
+		print(self.OrderBookStructure)
 		#exit matching function if no Queue is empty or no matches can be made
 		if not self.OrderBookStructure:
 			return
@@ -233,11 +239,10 @@ class Backtest(Config):
 	def GenerateBots(self,N: int) -> List[Bot]:
 		bots = []
 		for i in range(N):
-			bullish = np.random.choice(0,1)
+			bullish = np.random.choice([0,1])
 			bearish = 0 if bullish == 1 else 1
 			bot = Bot(bullish=bullish,bearish=bearish,random_state=np.random.randint(3,15))
-			bots.append(bot)
-		
+			bots.append(bot)		
 		return bots
 	
 	def BotExecution(self) -> List[Order]:
@@ -248,10 +253,21 @@ class Backtest(Config):
 			orders = list(results.values())
 			orders = sum(orders, [])
 			bot_results.append(orders) # [(),()]
+		print(bot_results)
 		bot_results = sum(bot_results,[])
-		self.Market_orders = bot_results  
+		self.Market_orders = bot_results
+
+	def BuildInitialState(self): #TODO Make a reliable way of generating an initial state
+		order_depth = self.starting_state.order_depths
+		for p in self.listings:
+			order_depth[p] = OrderDepth()
+			for price in range(1,5):
+				order_depth[p].buy_orders[price] = 1
+			for price in range(6,10):
+				order_depth[p].sell_orders[price] = -1
 
 	def run(self,N: int) -> Dict[str,int]:
+		self.BuildInitialState()
 		for i in range(N):
 			self.BotExecution()
 			#run algo
@@ -263,4 +279,5 @@ class Backtest(Config):
 
 if __name__ == '__main__':
 	backtester = Backtest("algo_mesoplodon_bowdoini.py")
-	backtester.RunMyAlgo()
+	backtester.run(10)
+	#backtester.BotExecution()

@@ -16,8 +16,8 @@ class Bot:
 		Only method required. It takes all buy and sell orders for all symbols as an input,
 		and outputs a list of orders to be sent
 		"""
-		print("traderData: " + state.traderData)
-		print("Observations: " + str(state.observations))
+		#print("traderData: " + state.traderData)
+		#print("Observations: " + str(state.observations))
 
 				# Orders to be placed on exchange matching engine
 		result = {}
@@ -27,10 +27,10 @@ class Bot:
 			orders: List[Order] = []
 			# Define a fair value for the PRODUCT. Might be different for each tradable item
 			# Note that this value of 10 is just a dummy value, you should likely change it!
-			acceptable_price = 10
+			acceptable_price = 0
 						# All print statements output will be delivered inside test results
-			print("Acceptable price : " + str(acceptable_price))
-			print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
+			#print("Acceptable price : " + str(acceptable_price))
+			#print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
 	
 						# Order depth list come already sorted. 
 						# We can simply pick first item to check first item to get best bid or offer
@@ -42,14 +42,14 @@ class Bot:
 					# The code below therefore sends a BUY order at the price level of the ask,
 					# with the same quantity
 					# We expect this order to trade with the sell order
-					print("BUY", str(-best_ask_amount) + "x", best_ask)
+					#print("BUY", str(-best_ask_amount) + "x", best_ask)
 					orders.append(Order(product, best_ask, -best_ask_amount))
 	
 			if len(order_depth.buy_orders) != 0:
 				best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
 				if int(best_bid) > acceptable_price:
 										# Similar situation with sell orders
-					print("SELL", str(best_bid_amount) + "x", best_bid)
+					#print("SELL", str(best_bid_amount) + "x", best_bid)
 					orders.append(Order(product, best_bid, -best_bid_amount))
 			
 			result[product] = orders
