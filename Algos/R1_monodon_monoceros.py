@@ -1,20 +1,22 @@
 """
 Author: ravargas.42t@gmail.com
-algo_mesoplodon_bowdoini.py (c) 2024
-Desc: description
-Created:  2024-02-29T13:52:02.430Z
+R1_monodon_monoceros.py (c) 2024
+Desc:
+	Round 1 algorithm to trade AMETHYSTS and STARFRUIT.
+Created:  2024-04-09T09:02:23.136Z
 Modified: !date!
 """
 
 #REQUIRED CLASSES
-from  Utils.datamodel import OrderDepth, UserId, TradingState, Order
+from  datamodel import OrderDepth, UserId, TradingState, Order
 from typing import List, Dict
+import string
 #support libraries
-import jsonpickle as jp
-import math as mt
+import math
 import numpy as np
 import pandas as pd
 import statistics as st
+import jsonpickle as jp
 
 class Utils:
 
@@ -153,103 +155,40 @@ class Utils:
 
 			return xhat
 
-class MarketMakingModels:
-	'''
-	this models will compute and return the result variable in Trader.run()
-	'''
-
-	class AvellanedaStoikov:
-		'''
-		Classic model for basic ob modelling. It only takes inventory risk into account.
-		:returns: Given an orderbook state it returns the set of bid ask orders.
-		'''
-		
-		def _ReservationPrice(s,q,t, T, gamma, variance) -> int:
-			#Calculate the reservation price based on target inventory.
-			r = s - q * gamma * variance * (T - t)
-			return r
-		
-		def _OptimalSpread(gamma, variance, T, t, k) -> int:
-			#Determine the optimal bid and ask spread.
-			delta = gamma * variance *(T - t) + (2/gamma) * np.log((1 + (gamma / k))) #where k is order book liquidity or depth (Levels)
-			return delta
-
-		def run(s, q, t, T, gamma, variance, k):
-			r, delta = (
-				MarketMakingModels.AvellanedaStoikov._ReservationPrice(s, q, t, T, gamma, variance),
-				MarketMakingModels.AvellanedaStoikov._OptimalSpread(gamma, variance, T, t, k)
-			)
-			optimal_bid, optimal_ask = r - delta / 2, r + delta / 2
-			return optimal_bid, optimal_ask
-
 class Trader:
 
-	_Long_limit: int = 0
-	_Short_limit: int = 0
-
-	DATA: Dict = {
-		"priceHistory": {},
+	LIMITS = {
+		"SF": 20,
+		"AM": 20,
 	}
+	def tradeAMETHYSTS(self, state, result):
+		AMETHYSTS = "AMETHYSTS"
+		orders : List[Order] = []
+		order_depth: OrderDepth = state.order_depths[AMETHYSTS]
+		midprice = (order_depth.buy_orders.keys()[0] + order_depth.sell_orders.keys()[0]) / 2
 
-	def tradeSTARFRUIT(self):
-		pass
+		return result
 
-	def tradeAMETHYSTS(self):
-		pass
+	def tradeSTARFRUIT(self, state, result):
+		STARFRUIT = "STARFRUIT"
+		orders : List[Order] = []
+		order_depth: OrderDepth = state.order_depths[STARFRUIT]
+		midprice = (order_depth.buy_orders.keys()[0] + order_depth.sell_orders.keys()[0]) / 2
 
-	def run(self, state: TradingState):
-		"""
-		main entry point of the script. It executes the rest of 
-		methods to compute result, conversions and traderData
-		"""
-		print("traderData: " + state.traderData)
-		print("Observations: " + str(state.observations))
-		
-				# Orders to be placed on exchange matching engine
-		result = {}
-		#for product in state.order_depths:
-		for product in state.order_depths:
-			self.DATA["priceHistory"][product] 
-			order_depth: OrderDepth = state.order_depths[product]
-			Spread, MidPrice, OBI = Utils.TradeUtils.Spread(order_depth=order_depth), Utils.TradeUtils.MidPrice(order_depth=order_depth), Utils.TradeUtils.OrderBookImbalance(order_depth=order_depth)
-			BuyDepth = len(order_depth.buy_orders)
-			SellDepth = len(order_depth.sell_orders)
-			best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-			best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-			
-			# Initialize the list of Orders to be sent as an empty list
-			orders: List[Order] = []
-			# Define a fair value for the PRODUCT. Might be different for each tradable item
-			acceptable_price = MidPrice * (1 + OBI)
-			print("OBI: ", OBI)	
-			print("Acceptable price : " + str(acceptable_price))
-			print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
-
-			if len(order_depth.sell_orders) != 0 and len(order_depth.buy_orders) != 0:
-			
-				if  OBI > 0.50:
-					#for i in range(0,BuyDepth):
-						BuyQ = int(list(order_depth.buy_orders.values())[0])
-						BuyP = list(order_depth.buy_orders.keys())[0]
-						print("Buy", str(BuyP) + "x", BuyQ)
-						order = Order(product, best_bid, BuyQ)
-						orders.append(order)
-
-				if 	OBI < 0.50:
-					#for i in range(0,SellDepth):
-						SellQ = -int(list(order_depth.sell_orders.values())[0])
-						SellP = list(order_depth.sell_orders.keys())[0]
-						print("BUY", str(SellQ) + "x", SellP)
-						order = Order(product, best_ask, SellQ)
-						orders.append(order)
-
-			traderData = jp.enconde(Trader.DATA)
-
-			result[product] = orders
+		return result
 	
-			# String value holding Trader state data required. 
-				# It will be delivered as TradingState.traderData on next execution.
-		
-				# Sample conversion request. Check more details below. 
+	def run(self, state: TradingState):
+
+		result : Dict = {}
 		conversions = 1
+		products = list(state.listings.keys())
+		decoded_traderData = jp.decode(state.traderData)
+
+		if not decoded_traderData:
+			state.traderData = {}
+		self.tradeAMETHYSTS(state, result)
+		self.tradeSTARFRUIT(state, result)
+
+		traderData = jp.encode(state.traderData)
+
 		return result, conversions, traderData

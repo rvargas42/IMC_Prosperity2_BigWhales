@@ -8,6 +8,7 @@ Modified: !date!
 
 import os
 import pandas as pd
+import numpy as np
 from Config import ROOT_DIR
 
 def getDataPaths(round: int):
@@ -23,4 +24,23 @@ def concat_dfs(name, paths):
     concat_df = pd.concat(dfs, axis=0, ignore_index=True)
     return concat_df
 
+def fft_filtering(df, feature):
+    signal = df[feature].to_numpy()
+    n = len(signal)
+    dt = 1
+    fhat = np.fft.rfft(signal, n)
+    PSD = fhat * np.conj(fhat) / n
+    freq = (1/(dt*n)) * np.arange(n)
+    L = np.arange(1, np.floor(n/2), dtype="int")
+    #inverse transform
+    indices = PSD > PSD[int(len(PSD)*0.05)]
+    PSDclean = PSD * indices
+    fhat = indices * fhat
+    ffiltered = np.fft.ifft(fhat)
 
+    return ffiltered
+
+def euclideanDistance(self, s1: np.array, s2:np.array):
+	subtract = s1 - s2
+	distance = np.sqrt(np.dot(subtract.T, subtract))
+	return distance

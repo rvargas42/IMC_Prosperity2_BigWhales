@@ -21,7 +21,7 @@ print(set(profit_curve))
 max_profit = np.max(profit_curve)
 new_min = 0
 for i in range(66, 100):
-    if profit_curve[i] < max_profit and profit_curve[i] > 1100:
+    if profit_curve[i] < max_profit and profit_curve[i] > 1001:
         new_min = profit_curve[i]
 
 min_profit = new_min
@@ -38,4 +38,4 @@ plt.axvline(x=profit_curve.index(max_profit), color="green")
 plt.axvline(x=profit_curve.index(min_profit), color="green")
 title = "BUYING SCUBA GEAR"
 plt.title(title)
-plt.savefig(f"{CHARTS_DIR}/{title}_{os.path.basename(__file__)}.jpg")
+plt.savefig(f"{CHARTS_DIR}/SCOOBAGEAR_MANUAL_Results_R1.jpg")
