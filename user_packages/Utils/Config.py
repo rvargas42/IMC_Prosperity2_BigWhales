@@ -19,6 +19,7 @@ ROOT_DIR = os.path.abspath(os.path.join(this_dir, '..', '..', '..', '..', '..'))
 FOLDERS = os.listdir(ROOT_DIR)
 #specific dirs
 CHARTS_DIR = os.path.join(ROOT_DIR, "Charts")
+DATA_DIR = os.path.join(ROOT_DIR, "Data")
 
 def getDataPaths(round: int):
     data_files = os.listdir(os.path.join(ROOT_DIR, "Data", f"round_{round}"))
