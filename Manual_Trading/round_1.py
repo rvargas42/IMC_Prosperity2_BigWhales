@@ -11,7 +11,6 @@ price_range = [i for i in range(reservartion_price, price_max)]
 
 profit_curve = []
 for Q, price_level in enumerate(price_range):
-
     COS = Q * price_level
     POS = 1000 * Q
     Real_Profit = Q/100 * (POS - COS)

@@ -30,8 +30,9 @@ class Trader:
 	}
 	DATA = {
 		"t":0,
-		"STARFRUIT":[],
-		"AMETHYSTS":[],
+		"STARFRUIT":{},
+		"AMETHYSTS":{},
+		"ORCHIDS":{},
 	}
 
 	class Utils:
@@ -90,12 +91,61 @@ class Trader:
 			desired_position : int = int(Trader.OPTIMUM_W[product] * 20)
 			q = current_position - desired_position
 			return q
-			
+
 	class Models:
 		@staticmethod
-		def monodon_monoceron(state, BookImbalance):
-			pass
-	
+		def monoceros(product, order_depth, i, depth, orders, maxSize, MaxDepth):
+			print("inside quote model")
+			symetry = []
+			depth_symetry = 0
+			buys, sells = order_depth.buy_orders, order_depth.sell_orders
+			best_bid, best_bid_Q = list(buys.items())[0]
+			best_ask, best_ask_Q = list(sells.items())[0]
+			optBid, optAsk = 0, 0
+			Qt = 0
+			for i in range(depth):
+				level_bid_Q = list(buys.items())[i][1]
+				level_ask_Q = list(sells.items())[i][1]
+				Qt = np.abs(level_ask_Q) + np.abs(level_bid_Q)
+				sym = level_bid_Q + level_ask_Q
+				symetry.append(sym)
+			for i, _ in enumerate(symetry):
+				depth_symetry += symetry[i] * (i+1)
+			total_symetry = sum(symetry)
+			print("symetry and depth sym: ", total_symetry, depth_symetry)
+			reservation_level = np.min([np.abs(total_symetry - total_symetry), MaxDepth])
+			Lb = reservation_level * np.abs(i) if i > 0 else reservation_level * (1+np.abs(i))
+			La = reservation_level * (1+np.abs(i)) if i < 0 else reservation_level * np.abs(i)
+			optBid, optAsk = best_bid - Lb, best_ask + La
+			Qa = -np.abs(total_symetry-maxSize[0]) if total_symetry > 0 else maxSize[0]
+			Qb = maxSize[1] if total_symetry > 0 else np.abs(total_symetry+maxSize[1])
+			orders.append(L:=Order(product, int(optBid), int(Qb)))
+			orders.append(S:=Order(product, int(optAsk), int(Qa)))
+			print("mid_price: ", (best_ask+best_bid)/2)
+			print("askquote bidquote: ", optAsk, optBid)
+			print("Long/short orders; ", L, S)
+			# if i == 0:
+			# 	BidQ, AskQ = maxSize[1] * (1-i), maxSize[0] * i
+			# 	orders.append(L:=Order(product, int(optBid), int(BidQ)))
+			# 	orders.append(S:=Order(product, int(optAsk), int(AskQ)))
+			# 	print("mid_price: ", (best_ask+best_bid)/2)
+			# 	print("askquote bidquote: ", optAsk, optBid)
+			# 	print("Long/short orders; ", L, S)
+			# if i > 0:
+			# 	BidQ, AskQ = maxSize[1] * (1-i), maxSize[0] * i
+			# 	orders.append(L:=Order(product, int(optBid), int(BidQ)))
+			# 	orders.append(S:=Order(product, int(optAsk), int(AskQ)))
+			# 	print("mid_price: ", (best_ask+best_bid)/2)
+			# 	print("askquote bidquote: ", optAsk, optBid)
+			# 	print("Long/short orders; ", L, S)
+			# if i < 0:
+			# 	BidQ, AskQ = maxSize[1] * i, maxSize[0] * (1+i)
+			# 	orders.append(L:=Order(product, int(optBid), int(BidQ)))
+			# 	orders.append(S:=Order(product, int(optAsk), int(AskQ)))
+			# 	print("mid_price: ", (best_ask+best_bid)/2)
+			# 	print("askquote bidquote: ", optAsk, optBid)
+			# 	print("Long/short orders; ", L, S)
+
 	@staticmethod
 	def tradeAMETHYSTS(state, result):
 		'''Amethysts seem to be capped between two prices: [9996.5 - 10003.5] which is a spread of 7$SH
@@ -128,38 +178,27 @@ class Trader:
 		return result
 	
 	@staticmethod
-	def tradeSTARFRUIT(state, result, myData):
+	def tradeSTARFRUIT(state, result):
 		'''
-		Strategy: use market making model
 		'''
 		STARFRUIT = "STARFRUIT"
-		orders : List[Order] = []
 		order_depth: OrderDepth = state.order_depths[STARFRUIT]
 		depth : int = Trader.Utils.getDepth(order_depth)
-		midprice = Trader.Utils.midPrice(order_depth)
-		Trader.Utils.appendPrices(STARFRUIT, midprice)
 		maxOrderSize = Trader.Utils.maxOrderSize(STARFRUIT, state)
-		
-		X_ask, X_bid = list(order_depth.sell_orders.items())[depth][0], list(order_depth.buy_orders.items())[depth][0]
-		BookImbalance = Trader.Utils.OrderBookImbalance(order_depth)
-		y_price = int(10 + X_bid * 0.5174 - 3.3103 * BookImbalance + 0.4806 * X_ask)
-		print("STARFRUIT predicted Price: ", y_price)
-		print("mid_price: ", midprice)
+		OBI = Trader.Utils.OrderBookImbalance(order_depth)
+		print("OBI: ", OBI)
+		print("maxOrderSize; ", maxOrderSize)
 
-		best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-		best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-		volatility = np.std(myData[STARFRUIT])
-		y = myData[STARFRUIT]
-		X = [i for i in range(len(y))]
-		slope = np.polyfit(x=X, y=y, deg=1)
-		m = slope[0]
-
-		if y_price > midprice:
-			order = Order(STARFRUIT, int(best_bid - 2), int(maxOrderSize[1]))
-			orders.append(Order)
-		if y_price < midprice:
-			order = Order(STARFRUIT, int(best_ask + 2), int(maxOrderSize[0]))
-			orders.append(Order)
+		orders : List[Order] = []
+		Trader.Models.monoceros(
+			STARFRUIT,
+			order_depth,
+			OBI,
+			depth+1,
+			orders,
+			maxOrderSize,
+			MaxDepth=3
+		)
 
 		result[STARFRUIT] = orders
 		return result
@@ -168,16 +207,11 @@ class Trader:
 
 		result : Dict = {}
 		conversions = 1
-		products = list(state.listings.keys())
-		if state.traderData:
-			myData = jp.decode(state.traderData)
-		else:
-			myData = Trader.DATA
 
-		Trader.tradeSTARFRUIT(state, result, myData)
+		Trader.tradeSTARFRUIT(state, result)
 		Trader.tradeAMETHYSTS(state, result)
-		
-		Trader.DATA["t"] += 1
-		traderData = jp.encode(Trader.DATA)
+
+		#Trader.DATA["t"] += 1
+		traderData = "" #jp.encode(Trader.DATA)
 
 		return result, conversions, traderData
