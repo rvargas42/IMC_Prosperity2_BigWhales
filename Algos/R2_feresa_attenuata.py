@@ -27,10 +27,7 @@ class Trader:
 			  -> (100) entries: lenght of data 
 	'''
 	# ------------------------------- Encoded Data ------------------------------- #
-	DATA = np.zeros((3,2,100)) # 1 dimension per product (3), number of features: midprice,kf_pred,... / length
-	OPEN_ORDERS = {
-		"STARFRUIT"
-	}
+	# 1 dimension per product (3), number of features: midprice,kf_pred,... / length
 	# -------------------------------- Helper Data ------------------------------- #
 	PRODUCTS = ["STARFRUIT","AMETHYSTS","ORCHIDS"]
 	LIMITS = {
@@ -78,23 +75,6 @@ class Trader:
 
 			return OBI
 
-		@staticmethod
-		def appendData(product, feature, value):
-			slot = Trader.DATA[product][feature]
-			if len(slot) >= Trader.LIMITS["limit"]:
-				slot.pop(0)
-			slot.append(value)
-		
-		@staticmethod
-		def maxOrderSize(product, state: TradingState):
-			limit = Trader.LIMITS[product]
-			productPosition = state.position.get(product,0)
-			if np.abs(productPosition) > 20:
-				return (0, 0)
-			shortSize : int = int(-1 * (productPosition + limit))
-			longSize : int = int(-1 * (productPosition - limit))
-			return (shortSize, longSize)
-	
 		@staticmethod
 		def optimalInventory(data, position, product) -> tuple:
 			current_position : int = np.abs(position.get(product, 0))
@@ -161,7 +141,7 @@ class Trader:
 			orders.append(L:=Order(product, int(optBid), int(Qb)))
 			orders.append(S:=Order(product, int(optAsk), int(Qa)))
 
-	def tradeAMETHYSTS(self, result):
+	def tradeAMETHYSTS(self):
 		'''Amethysts seem to be capped between two prices: [9996.5 - 10003.5] which is a spread of 7$SH
 		Strategy: Calculate a mean price and sell or buy given a distance to price and OBI
 		'''
@@ -169,7 +149,7 @@ class Trader:
 		AMETHYSTS = "AMETHYSTS"
 		order_depth: OrderDepth = self.state.order_depths[AMETHYSTS]
 		BookImbalance = self.Utils.OrderBookImbalance(order_depth)
-		maxOrderSize = self.Utils.maxOrderSize("AMETHYSTS", self.state)
+		maxOrderSize = self.maxOrderSize(AMETHYSTS)
 
 		best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
 		best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
@@ -184,16 +164,15 @@ class Trader:
 			order = Order(AMETHYSTS, reservation_ask, int(maxOrderSize[0]))
 			orders.append(order)
 
-		result[AMETHYSTS] = orders
-		return result
+		self.result[AMETHYSTS].extend(orders)
 
-	def tradeSTARFRUIT(self, result):
+	def tradeSTARFRUIT(self):
 		'''
 		'''
 		STARFRUIT = "STARFRUIT"
 		order_depth: OrderDepth = self.state.order_depths[STARFRUIT]
 		depth : int = self.Utils.getDepth(order_depth)
-		maxOrderSize = self.Utils.maxOrderSize(STARFRUIT, self.state)
+		maxOrderSize = self.maxOrderSize(STARFRUIT)
 		OBI = self.Utils.OrderBookImbalance(order_depth)
 
 		orders : List[Order] = []
@@ -207,9 +186,9 @@ class Trader:
 			MaxDepth=3
 		)
 
-		result[STARFRUIT] = orders
+		self.result[STARFRUIT].extend(orders)
 
-	def tradeORCHIDS(self, result):
+	def tradeORCHIDS(self):
 		'''
 		HUMIDIY: 60-80% is the ideal range->if it goes above or bellow-> Production decreases 2% for every 5% humidity change
 		SUNLIGHT: Has to be >7hours/day -> if not then Production decreases -4%/10 minutes
@@ -230,50 +209,97 @@ class Trader:
 
 		orders : List[Order] = []
 
-		result[ORCHIDS] = orders
+		self.result[ORCHIDS].extend(orders)
 
-	def appendData(self):
+	def maxOrderSize(self, product):
+		limit = Trader.LIMITS[product]
+		productPosition = self.state.position.get(product,0)
+		if np.abs(productPosition) > 20:
+			return (0, 0)
+		shortSize : int = int(-1 * (productPosition + limit))
+		longSize : int = int(-1 * (productPosition - limit))
+		return (shortSize, longSize)
+
+	def appendData(self): #OK!
 		'''
 		Method to populate data matrix for keeping track of historic data during execution
 		- Features: mid_price, kalman filter, 
 		'''
 		#fill values from Data array with mean where values are 0 to predict correctly (similar to ffill)
-		for i, prod in enumerate(self.PRODUCTS):
-			mid_price = Trader.Utils.midPrice(self.state.order_depths[prod])
-			time = int(np.min([self.time,99]))
-			if time == 99:
-				self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
-				self.DATA[i][0][-1] = mid_price
-				preds = Trader.Utils.savitzky_golay(self.DATA[i][0])
-				self.DATA[i][1] = preds
-			else:
-				self.DATA[i][0][time] = mid_price
-			#after updating midprice we predict for the whole 100 entries
+		if self.time == 2:
+			mean = np.mean(self.DATA[self.DATA != 0])
+			self.DATA[self.DATA == 0] = mean
+		else:
+			for i, prod in enumerate(self.PRODUCTS):
+				mid_price = Trader.Utils.midPrice(self.state.order_depths[prod])
+				time = int(np.min([self.time,99]))
+				if self.time < 1: #for indexes 0, and 1 -> then fill the mean
+					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
+					self.DATA[i][0][-1] = mid_price
+					return
+				if time == 99:
+					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
+					self.DATA[i][0][-1] = mid_price
+					preds = Trader.Utils.savitzky_golay(self.DATA[i][0])
+					self.DATA[i][1] = preds
+					return
+				else:
+					self.DATA[i][0][time] = mid_price
+				#after updating midprice we predict for the whole 100 entries
 
-	def calculatePosition(self,state, takeProfit, stopLoss):
+	def updatePositions(self): #TODO
+		'''
+		Updates self.OPEN_POSITIONS with new filled orders for each product
+		'''
+		if not self.state.own_trades:
+			return
+		for product, orders in self.OPEN_POSITIONS.items():
+			trade_list = self.state.own_trades[product]
+			if not trade_list: #No trades no update
+				continue
+			for trade in trade_list:
+				P = trade.price
+				Q = -trade.quantity if trade.seller == "SUBMISSION" else trade.quantity
+				# --- for each level in our positions dicttionary we will net our quantity --- #
+				orders[P] += Q
+
+	def calculatePosition(self, takeProfit, stopLoss, trailing):
 		"Method that takes individual positions and returns a set of TP/SL orders"
+		# ------------ 1. Enter positions and perform profit calculations ------------ #
+		for product, orders in self.OPEN_POSITIONS.items():
+			pass
+			self.result[product].extend()
 
 	def run(self, state: TradingState):
+		# ------------------------ Data Needed for operations ------------------------ #
+		self.DATA = np.zeros((3,2,100))
+		self.OPEN_POSITIONS = {prod:{} for prod in self.PRODUCTS}
+		# -------------- Instance variables to be accessed and modified -------------- #
+		self.result : Dict = {prod:[] for prod in self.PRODUCTS}
 		self.state = state
-		result : Dict = {}
-		conversions = 1
-		if not state.traderData:
-			state.TraderData = self.DATA
-		else:
-			self.DATA = jp.decode(state.traderData)
-
 		self.time = state.timestamp / 100
-
+		self.conversions = 1
+		if not self.state.traderData:
+			self.state.TraderData = self.DATA
+		else:
+			self.DATA = jp.decode(self.state.traderData)
+		
+		self.addFilledOrders()
 		self.appendData()
+		print(self.DATA[0][0])
 		print(self.DATA[0][1])
 		#Trader Methods for each product-> pass state and result
+		# ------------------ 1. Calculate positions we need to close ----------------- #
+		self.calculatePosition(0.5,-0.2,0.01)#parameters expressed in %
+		# --------------------------- 2. Execute New Trades -------------------------- #
+		
+		#self.tradeAMETHYSTS()
+		#self.tradeSTARFRUIT()
+		#self.tradeORCHIDS()
 
-		#self.tradeAMETHYSTS(result)
-		#self.tradeSTARFRUIT(result)
-		#self.tradeORCHIDS(result)
-	
+		# ------------------------ 3. Optimize Inventory Risk ------------------------ #
+		self.optimizeInventory()
+		# ----------------------- 4. Enconde and Return Results ---------------------- #
 		data2encode = self.DATA
-
 		traderData = jp.encode(data2encode)
-
-		return result, conversions, traderData
+		return self.result, conversions, traderData
