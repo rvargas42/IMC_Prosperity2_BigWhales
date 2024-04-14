@@ -26,18 +26,6 @@ l2 = [1,2,3,4,5]
 l1 = sum(l1,[])
 #print(sum(list(orders.values()),list(orders2.values())))
 
-my_d = {k:{"BUY":{},"SELL":{}} for k in orders.keys()}
-for orderObject in all_orders:
-	prod = orderObject.symbol
-	price = orderObject.price
-	side = "BUY" if orderObject.quantity > 0 else "SELL"
-	if price not in list(my_d[prod][side].keys()):
-		 my_d[prod][side][price]  = [hash(orderObject)]
-	else:
-		(my_d[prod][side][price]).append(hash(orderObject))
-
-print(my_d)
-
 import jsonpickle
 
 mydata = {
@@ -139,3 +127,50 @@ print("Mean Squared Error:", mse)
 
 # Output the weights
 print("Weights (parameters):", weights)
+
+import timeit
+
+# Define una función para comparar el tiempo de ejecución de ambos métodos
+def compare_methods(dict_size):
+    # Crea un diccionario con números enteros como llaves y valores
+    test_dict = {i: i for i in range(dict_size)}
+    
+    # Método 1: list(dict.values())[0]
+    method1_time = timeit.timeit(lambda: list(test_dict.values())[0], number=10000)
+    
+    # Método 2: next(iter(dict))
+    method2_time = timeit.timeit(lambda: next(iter(test_dict)), number=10000)
+    
+    # Imprime los resultados
+    print(f"Método 1 (list(dict.values())[0]): {method1_time} segundos")
+    print(f"Método 2 (next(iter(dict))): {method2_time} segundos")
+
+# Prueba con un diccionario de tamaño 1000
+compare_methods(1000)
+
+import time
+
+# Función para verificar si un diccionario está ordenado
+def esta_ordenado(diccionario):
+    claves = list(diccionario.keys())
+    return claves == sorted(claves) or claves == sorted(claves, reverse=True)
+
+# Diccionario grande no ordenado
+diccionario_grande = {str(i): i for i in range(100000)}
+print("Diccionario grande creado.")
+
+# Medir el tiempo de ordenamiento y verificación
+start_time = time.time()
+
+# Ordenar el diccionario sin usar librerías externas
+items_ordenados = sorted(diccionario_grande.items())
+diccionario_ordenado = {k: v for k, v in items_ordenados}
+
+# Verificar si el diccionario está ordenado
+ordenado = esta_ordenado(diccionario_ordenado)
+
+end_time = time.time()
+
+# Imprimir el tiempo transcurrido y el resultado
+print("¿El diccionario está ordenado?", ordenado)
+print("Tiempo transcurrido:", end_time - start_time, "segundos.")
