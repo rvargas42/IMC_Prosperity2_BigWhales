@@ -29,15 +29,30 @@ class Trader:
 	# ------------------------------- Encoded Data ------------------------------- #
 	# 1 dimension per product (3), number of features: midprice,kf_pred,... / length
 	# -------------------------------- Helper Data ------------------------------- #
-	PRODUCTS = {"STARFRUIT":0,"AMETHYSTS":1,"ORCHIDS":2}
+	PRODUCTS = {"STARFRUIT":0,"AMETHYSTS":1,"ORCHIDS":2, "CHOCOLATE":3, "STRAWBERRIES": 4, "ROSES": 5}
 	LIMITS = {
 		"STARFRUIT": 20,
 		"AMETHYSTS": 20,
 		"ORCHIDS": 100,
+		"CHOCOLATE":250,
+		"STRAWBERRIES":350,
+		"ROSES":60,
+		"GIFT_BASKET":60,
 	}
 	OPTIMUM_W = {
 		"STARFRUIT": 0.261,
-		"AMETHYSTS": 0.739
+		"AMETHYSTS": 0.739,
+		"ORCHIDS":1,
+		"BENCH_GIFT_BASKET":{
+			"CHOCOLATE":4/11,
+			"STRAWBERRIES":6/11,
+			"ROSES":1/11
+		},
+		"BASKET": {
+			"CHOCOLATE":0.33,
+			"STRAWBERRIES":.33,
+			"ROSES":0.34
+		}
 	}
 	# ----------------- Utils class with tools to manipulate data ---------------- #
 	class Utils:
@@ -87,7 +102,7 @@ class Trader:
 			pass
 
 		@staticmethod
-		def savitzky_golay(y, window_size=11, order=3, deriv=0, rate=1): #TODO: implement a model that takes the gradiend of the predictions and then filters it to take leading indicator
+		def savitzky_golay(y, window_size=3, order=1, deriv=0, rate=1): #TODO: implement a model that takes the gradiend of the predictions and then filters it to take leading indicator
 			try:
 				window_size = np.abs(np.int16(window_size))
 				order = np.abs(np.int16(order))
@@ -156,11 +171,9 @@ class Trader:
 		
 		if mid_price < reservation_bid:
 			order = Order(AMETHYSTS, reservation_bid, int(maxOrderSize[1]))
-			print("buy order at: ",  reservation_bid, maxOrderSize[1])
 			orders.append(order)
 		if mid_price > reservation_ask:
 			order = Order(AMETHYSTS, reservation_ask, int(maxOrderSize[0]))
-			print("sell order at: ",  reservation_bid, maxOrderSize[0])
 			orders.append(order)
 
 		self.result[AMETHYSTS].extend(orders)
@@ -171,23 +184,21 @@ class Trader:
 		STARFRUIT, data_key = "STARFRUIT", self.PRODUCTS["STARFRUIT"]
 		order_depth: OrderDepth = self.state.order_depths[STARFRUIT]
 		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		spread = best_ask - best_bid
 		depth : int = self.Utils.getDepth(order_depth)
-		maxOrderSize = self.maxOrderSize(STARFRUIT)
+		maxShort, maxLong = self.maxOrderSize(STARFRUIT)
 		mid_price = self.DATA[data_key][0][-1]
-		fair_price = self.DATA[data_key][1][0]
-		print(fair_price)
-		print(mid_price)
-		orders : List[Order] = []
+		fair_price = self.DATA[data_key][1][-1]
+		gradient = self.DATA[data_key][2][-1]
 
-		buyQ = np.random.randint(1,3)
-		sellQ = np.random.randint(-3,-1)
-
-		if (best_ask < fair_price and best_bid < fair_price):
-			order = Order(STARFRUIT, best_ask, buyQ)
-			orders.append(order)
-		if (best_bid > fair_price and best_ask > fair_price):
-			order = Order(STARFRUIT, best_bid, sellQ)
-
+		buyQ = self.state.position.get(STARFRUIT,0) + np.min([maxLong, best_bid_Q])
+		sellQ = np.max([maxShort, best_ask_Q])
+		orders = []
+		if np.isclose(gradient, 0, atol=0.1) and mid_price > fair_price:
+			orders.append(Order(STARFRUIT, int(best_bid - spread), int(maxShort)))
+		if np.isclose(gradient, 0, atol=0.1) and mid_price < fair_price:
+			orders.append(Order(STARFRUIT, int(best_bid - spread), int(maxLong)))
 		self.result[STARFRUIT].extend(orders)
 
 	def tradeORCHIDS(self):
@@ -195,25 +206,87 @@ class Trader:
 		HUMIDIY: 60-80% is the ideal range->if it goes above or bellow-> Production decreases 2% for every 5% humidity change
 		SUNLIGHT: Has to be >7hours/day -> if not then Production decreases -4%/10 minutes
 		max position should be 100
-		The idea for this product is to predict production levels or prices and then put orders above or bellow market
+		If the price of buying from southc is less than importing and selling then calculate maxq and do that
+		Timestamp: each 100 increment is 1 min of the day so increments from iterations are 1 min
 		'''
 		ORCHIDS = "ORCHIDS"
+		# -------------------------------- Orchid Data ------------------------------- #
+		data_key = self.PRODUCTS[ORCHIDS]
+		humidity_history = self.DATA[data_key][1]
+		humidity_mean = np.mean(humidity_history)
+		sunlight_history = self.DATA[data_key][0]
 		# ------------------------ Data from the South Island ------------------------ #
 		humidity = self.state.observations.conversionObservations[ORCHIDS].humidity
 		sunlight = self.state.observations.conversionObservations[ORCHIDS].sunlight
-		costOfSale = self.state.observations.conversionObservations[ORCHIDS].exportTariff
-		costOfBuy = self.state.observations.conversionObservations[ORCHIDS].importTariff
+		sun_hours = (sunlight/10000)*24
+		#NOTE - keep track of steps with level of sunlight > 7h/day
+		if (sun_hours < 7):
+			print("sun hours: ",sun_hours)
+			self.SUNLIGHT_STEPS += 1
+		else:
+			self.SUNLIGHT_STEPS = 0
+		#NOTE - Calculate humidity
+		last_humidity =  humidity_history[int(np.min([99,self.time])-1)]
+		humidity_change = (humidity - last_humidity)
+		if (humidity > 80 or humidity < 60):
+			self.HUMIDITY_CHANGE += humidity_change
+		else:
+			self.HUMIDITY_CHANGE = 0
+		#NOTE - get costs to operate
+		exportTariff = self.state.observations.conversionObservations[ORCHIDS].exportTariff
+		importTariff = self.state.observations.conversionObservations[ORCHIDS].importTariff
 		fees = self.state.observations.conversionObservations[ORCHIDS].transportFees
-		bid = self.state.observations.conversionObservations[ORCHIDS].bidPrice
-		ask = self.state.observations.conversionObservations[ORCHIDS].askPrice
+		south_bid = self.state.observations.conversionObservations[ORCHIDS].bidPrice
+		south_ask = self.state.observations.conversionObservations[ORCHIDS].askPrice
+		#NOTE - Model the two main factors affecting supply/demmand
+		humidity_factor = -0.02 * ((self.HUMIDITY_CHANGE * 100) // 5)
+		sunlight_factor = -0.04 * (self.SUNLIGHT_STEPS // 10)
+		production_decrease_factor = humidity_factor + sunlight_factor
+		production_data = self.DATA[data_key][2]
+		production_data[int(np.min([99,self.time]))] = production_decrease_factor
 		# -------------------------- BigWhale Island Market -------------------------- #
-		order_depth: OrderDepth = self.state.order_depths[ORCHIDS]
-
-
+		bigWhale: OrderDepth = self.state.order_depths[ORCHIDS]
+		whale_bid, whale_ask = next(iter(bigWhale.buy_orders)), next(iter(bigWhale.sell_orders))
+		whale_midprice = (whale_ask + whale_bid) / 2
+		whale_bid_Q, whale_ask_Q = next(iter(bigWhale.buy_orders.values())), next(iter(bigWhale.sell_orders.values()))
+		maxShort, maxLong = self.maxOrderSize(ORCHIDS)
+		# --------------------- How much does it cost to purchase -------------------- #
+		price_to_import = south_ask + fees + importTariff
+		print("import price: ",price_to_import)
+		price_to_export = whale_bid + fees + exportTariff
+		print("export price: ", price_to_export)
+		# ----------- There is an arbitrage implicit as we have two markets ---------- #
 		orders : List[Order] = []
-
+		if self.time == 99:
+			production_data = np.roll(production_data,-1)
+		south_supply = south_ask + production_decrease_factor
+		# ----------------------------- Arbitrage Entries ---------------------------- #
+		PnL_long = 1*whale_ask - 1*south_bid - 1 * exportTariff - 1*fees - 1*.1 #Long in my island short in south
+		print(PnL_long)
+		PnL_Short = 1*south_ask - 1*whale_bid - 1 * importTariff - 1*fees - 1*.1 #Short in my island long in south
+		print(PnL_Short)
+		# if PnL_Short > 0:
+		# 	orders.append(Order(ORCHIDS, int(south_bid), maxShort))
+		# elif PnL_long > 0:
+		# 	orders.append(Order(ORCHIDS, int(south_bid), maxLong))
+		self.conversions = maxLong + maxShort
+		# ------------------------------ filtered signal ----------------------------- #
+		savgol_preds = self.DATA[data_key][2]
+		savgol_gradient = np.gradient(savgol_preds)
+		if savgol_gradient[-1] >= 0.5 and whale_midprice > savgol_preds[-1]:
+			orders.append(Order(ORCHIDS, int(whale_ask), maxShort))
+			self.conversions = maxShort
+		elif savgol_gradient <= -0.5 and whale_midprice < savgol_preds[-1]:
+			orders.append(Order(ORCHIDS, int(whale_bid), maxLong))
+			self.conversions = maxLong
+  
 		self.result[ORCHIDS].extend(orders)
 
+	def tradeBascket(self):
+		'''
+		Take a set of goods and trade them in a basket aka portfolio.
+		Objective: optimize the weights of this goods to minimize variance
+		'''
 	def maxOrderSize(self, product):
 		limit = Trader.LIMITS[product]
 		productPosition = self.state.position.get(product,0)
@@ -228,26 +301,46 @@ class Trader:
 		Method to populate data matrix for keeping track of historic data during execution
 		- Features: mid_price, kalman filter, 
 		'''
-		#fill values from Data array with mean where values are 0 to predict correctly (similar to ffill)
-		if self.time == 2:
-			mean = np.mean(self.DATA[self.DATA != 0])
-			self.DATA[self.DATA == 0] = mean
-		else:
-			for i, prod in enumerate(self.PRODUCTS.items()):
+		for i, prod in enumerate(self.PRODUCTS.items()):
+			if prod[0] == "ORCHIDS":
+				humidity = self.state.observations.conversionObservations["ORCHIDS"].humidity
+				sunlight = self.state.observations.conversionObservations["ORCHIDS"].sunlight
+				mid_price = Trader.Utils.midPrice(self.state.order_depths[prod[0]])
+				time = int(np.min([self.time,99]))
+				if time < 99:
+					self.DATA[i][3][time] = mid_price
+					if time > 2:
+						preds = Trader.Utils.savitzky_golay(self.DATA[i][3][:time+1])
+						self.DATA[i][2][:time+1] = preds
+					self.DATA[i][0][time] = sunlight
+					self.DATA[i][1][time] = humidity
+				if time == 99:
+					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
+					self.DATA[i][0][time] = sunlight
+					self.DATA[i][1] = np.roll(self.DATA[i][1],-1)
+					self.DATA[i][1][time] = humidity
+					self.DATA[i][3] = np.roll(self.DATA[i][3],-1)
+					self.DATA[i][3][time] = mid_price
+					preds = Trader.Utils.savitzky_golay(self.DATA[i][3][:time+1])
+					self.DATA[i][2] = preds
+			else:
 				mid_price = Trader.Utils.midPrice(self.state.order_depths[prod[0]])
 				time = int(np.min([self.time,99]))
 				if time < 99:
 					self.DATA[i][0][time] = mid_price
-					if time > 11:
-						preds = Trader.Utils.savitzky_golay(self.DATA[i][0])
-						self.DATA[i][1] = preds
+					if time > 2:
+						preds = Trader.Utils.savitzky_golay(self.DATA[i][0][:time+1])
+						gradient = np.gradient(preds)
+						self.DATA[i][1][:time+1] = preds
+						self.DATA[i][2][:time+1] = gradient
 				if time == 99:
 					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
 					self.DATA[i][0][time] = mid_price
 					preds = Trader.Utils.savitzky_golay(self.DATA[i][0]) #TODO - make predictions make after 11 timestamp
+					gradient = np.gradient(preds)
 					self.DATA[i][1] = preds
-					continue
-				#after updating midprice we predict for the whole 100 entries
+					self.DATA[i][2] = gradient
+					#after updating midprice we predict for the whole 100 entries
 
 	def calculatePosition(self, takeProfit=0.01, stopLoss=0.009):
 		'''
@@ -271,7 +364,6 @@ class Trader:
 			if takeProfit <= returns or returns <= -stopLoss:
 				order = Order(product, market_price, -position)
 				close_orders.append(order)
-
 			self.result[product].extend(close_orders) #this will be the orders that zero out our position
 
 	def updatePositions(self): # May be working...
@@ -283,7 +375,6 @@ class Trader:
 			return
 		for product, trades in self.OPEN_POSITIONS.items():
 			maxShort, maxLong = self.maxOrderSize(product)
-			print("maxordersize: ",maxShort,maxLong)
 			position = self.state.position.get(product,0)
 			trade_list = own_trades.get(product, 0)
 			if position == 0 or not trade_list:
@@ -317,8 +408,10 @@ class Trader:
 
 	def run(self, state: TradingState):
 		# ------------------------ Data Needed for operations ------------------------ #
-		self.DATA = np.zeros((3,2,100))
+		self.DATA = np.zeros((6,4,100)) #NOTE - 6 products , 4 data types, 100 entries
 		self.OPEN_POSITIONS = {prod:{} for prod in self.PRODUCTS.keys()}
+		self.HUMIDITY_CHANGE = 0
+		self.SUNLIGHT_STEPS = 0
 		# -------------- Instance variables to be accessed and modified -------------- #
 		self.result : Dict = {prod:[] for prod in self.PRODUCTS.keys()}
 		self.state = state
@@ -327,22 +420,20 @@ class Trader:
 		if not self.state.traderData:
 			self.state.TraderData = self.DATA
 		else:
-			self.DATA, self.OPEN_POSITIONS = jp.decode(self.state.traderData, keys=True) #NOTE - OPEN_POSITIONS HAS KEYS AS STR AFTER DECODING
-		self.updateData() #REVIEW - 
-		print(self.DATA[0][0])
-		print(self.DATA[0][1])
-		# ------------------ 1. Calculate positions we need to close ----------------- #
-		self.updatePositions() #REVIEW - 
-		self.calculatePosition()
+			self.DATA, self.OPEN_POSITIONS, self.HUMIDITY_CHANGE, self.SUNLIGHT_STEPS = jp.decode(self.state.traderData, keys=True) #NOTE - OPEN_POSITIONS HAS KEYS AS STR AFTER DECODING
+		# -------------------------------- Update Data ------------------------------- #
+		self.updateData()
+		self.updatePositions()
+		#self.calculatePosition()
 		# --------------------------- 2. Execute New Trades -------------------------- #
 
-		#self.tradeAMETHYSTS()
+		self.tradeAMETHYSTS()
 		self.tradeSTARFRUIT()
-		#self.tradeORCHIDS()
+		self.tradeORCHIDS()
 
 		# ------------------------ 3. Optimize Inventory Risk ------------------------ #
 		#self.optimizeInventory()
 		# ----------------------- 4. Enconde and Return Results ---------------------- #
-		data2encode = (self.DATA, self.OPEN_POSITIONS)
+		data2encode = (self.DATA, self.OPEN_POSITIONS, self.HUMIDITY_CHANGE, self.SUNLIGHT_STEPS)
 		traderData = jp.encode(data2encode, keys=True)
 		return self.result, self.conversions, traderData
