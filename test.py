@@ -174,3 +174,19 @@ end_time = time.time()
 # Imprimir el tiempo transcurrido y el resultado
 print("¿El diccionario está ordenado?", ordenado)
 print("Tiempo transcurrido:", end_time - start_time, "segundos.")
+
+import numpy as np
+
+# Crear un array de dimensiones (6, 6, 100)
+arr = np.zeros((6, 6, 100000))
+
+# Tamaño de un elemento del array en bytes
+tamanio_elemento = arr.itemsize
+
+# Número total de elementos en el array
+num_elementos = arr.size
+
+# Tamaño total del array en bytes
+tamanio_total = tamanio_elemento * num_elementos
+
+print("Tamaño total del array en bytes:", tamanio_total)

@@ -29,7 +29,7 @@ class Trader:
 	# ------------------------------- Encoded Data ------------------------------- #
 	# 1 dimension per product (3), number of features: midprice,kf_pred,... / length
 	# -------------------------------- Helper Data ------------------------------- #
-	PRODUCTS = {"STARFRUIT":0,"AMETHYSTS":1,"ORCHIDS":2, "CHOCOLATE":3, "STRAWBERRIES": 4, "ROSES": 5}
+	PRODUCTS = {"STARFRUIT":0,"AMETHYSTS":1,"ORCHIDS":2, "GIFT_BASKET": 3, "CHOCOLATE":4, "STRAWBERRIES": 5, "ROSES": 6}
 	LIMITS = {
 		"STARFRUIT": 20,
 		"AMETHYSTS": 20,
@@ -123,36 +123,9 @@ class Trader:
 			lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
 			y = np.concatenate((firstvals, y, lastvals))
 			preds = np.convolve( m[::-1], y, mode='valid')
-			y_hat = np.int32(np.round(preds,0))
-			return y_hat
+			return preds
 
 	# --------- Class contianing quoting, filtering and any kind of model -------- #
-	class Models:
-		@staticmethod
-		def monoceros(product, order_depth, i, depth, orders, maxSize, MaxDepth):
-			symetry = []
-			depth_symetry = 0
-			buys, sells = order_depth.buy_orders, order_depth.sell_orders
-			best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
-			optBid, optAsk = 0, 0
-			Qt = 0
-			for i in range(depth):
-				level_bid_Q = list(buys.items())[i][1]
-				level_ask_Q = list(sells.items())[i][1]
-				Qt = np.abs(level_ask_Q) + np.abs(level_bid_Q)
-				sym = level_bid_Q + level_ask_Q
-				symetry.append(sym)
-			for i, _ in enumerate(symetry):
-				depth_symetry += symetry[i] * (i+1)
-			total_symetry = sum(symetry)
-			reservation_level = np.min([np.abs(total_symetry - total_symetry), MaxDepth])
-			Lb = reservation_level * np.abs(i) if i > 0 else reservation_level * (1+np.abs(i))
-			La = reservation_level * (1+np.abs(i)) if i < 0 else reservation_level * np.abs(i)
-			optBid, optAsk = best_bid - Lb, best_ask + La
-			Qa = -np.abs(total_symetry-maxSize[0]) if total_symetry > 0 else maxSize[0]
-			Qb = maxSize[1] if total_symetry > 0 else np.abs(total_symetry+maxSize[1])
-			orders.append(L:=Order(product, int(optBid), int(Qb)))
-			orders.append(S:=Order(product, int(optAsk), int(Qa)))
 
 	def tradeAMETHYSTS(self):
 		'''Amethysts seem to be capped between two prices: [9996.5 - 10003.5] which is a spread of 7$SH
@@ -191,25 +164,21 @@ class Trader:
 		data = self.DATA[data_key]
 		maxShort, maxLong = self.maxOrderSize(STARFRUIT)
 		mid_price = self.DATA[data_key][0][self.dataTime]
+		print("mid_price: ",mid_price)
 		# ---------------- Trade volatility with savitsky golay model ---------------- #
 		fair_price = self.DATA[data_key][1][self.dataTime]
-		Ar_fair_price = 2.71 + data[0][self.dataTime-1]*0.41 + data[0][self.dataTime-2]*0.31 + data[0][self.dataTime-3]*0.26
-		print("mid_price vs. fair price is: ",mid_price, fair_price, Ar_fair_price)
-		gradient = self.DATA[data_key][2][-1]
-		print("gradient is: ", gradient)
+		print("mid_price: ",mid_price)
 
+		orders = []
 		if self.time > 0:
 			trend = (self.DATA[data_key][0][self.dataTime] - self.DATA[data_key][0][0]) / self.DATA[data_key][0][0]
 		else:
 			return
-		orders = []
-		if mid_price < fair_price:
-			shortQ = 1 + np.abs(self.state.position.get(STARFRUIT,0))
+		if best_ask < fair_price:
 			orders.append(Order(STARFRUIT, best_bid, maxLong))
 			self.result[STARFRUIT].extend(orders)
 			return
-		if mid_price > fair_price:
-			longQ = 1 + np.abs(self.state.position.get(STARFRUIT,0))
+		if best_bid > fair_price:
 			orders.append(Order(STARFRUIT, best_ask, maxShort))
 			self.result[STARFRUIT].extend(orders)
 			return
@@ -302,7 +271,10 @@ class Trader:
 		'''
 		Take a set of goods and trade them in a basket aka portfolio.
 		Objective: optimize the weights of this goods to minimize variance
+		from trading data it seems that products from basket tend to revert to the basket price
 		'''
+
+
 	def maxOrderSize(self, product):
 		limit = Trader.LIMITS[product]
 		productPosition = self.state.position.get(product,0)
@@ -327,7 +299,7 @@ class Trader:
 				south_mid_price = int((south_ask + south_ask)/2)
 
 				time = self.dataTime
-				if time < 99:
+				if time < self.program_params["data_length"] - 1:
 					self.DATA[i][0][time] = whale_mid_price
 					self.DATA[i][4][time] = south_mid_price
 					if time > 2:
@@ -337,7 +309,7 @@ class Trader:
 						self.DATA[i][1][:time+1] = south_preds
 					self.DATA[i][2][time] = sunlight
 					self.DATA[i][3][time] = humidity
-				if time == 99:
+				if time == self.program_params["data_length"] - 1:
 					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
 					self.DATA[i][0][time] = whale_mid_price
 					preds = Trader.Utils.savitzky_golay(self.DATA[i][0])
@@ -353,24 +325,24 @@ class Trader:
 
 			else:
 				mid_price = Trader.Utils.midPrice(self.state.order_depths[prod[0]])
-				time = int(np.min([self.time,99]))
-				if time < 99:
+				time = self.dataTime
+				if time < self.program_params["data_length"]-1:
 					self.DATA[i][0][time] = mid_price
 					if time > 2:
 						preds = Trader.Utils.savitzky_golay(self.DATA[i][0][:time+1])
 						gradient = np.gradient(preds)
 						self.DATA[i][1][:time+1] = preds
 						self.DATA[i][2][:time+1] = gradient
-				if time == 99:
+				if time == self.program_params["data_length"]-1:
 					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
 					self.DATA[i][0][time] = mid_price
-					preds = Trader.Utils.savitzky_golay(self.DATA[i][0]) #TODO - make predictions make after 11 timestamp
+					preds = Trader.Utils.savitzky_golay(self.DATA[i][0])
 					gradient = np.gradient(preds)
 					self.DATA[i][1] = preds
 					self.DATA[i][2] = gradient
 					#after updating midprice we predict for the whole 100 entries
 
-	def calculatePosition(self, takeProfit=0.01, stopLoss=0.009):
+	def calculatePosition(self, takeProfit=0.009, stopLoss=0):
 		'''
 		Method that takes OPEN_POSITIONS first calculates profitability
 		of each position and exteds results with close_orders
@@ -392,6 +364,7 @@ class Trader:
 			if takeProfit <= returns or returns <= -stopLoss:
 				order = Order(product, market_price, -position)
 				close_orders.append(order)
+			print(close_orders)
 			self.result[product].extend(close_orders) #this will be the orders that zero out our position
 
 	def updatePositions(self): # May be working...
@@ -437,7 +410,7 @@ class Trader:
 	def run(self, state: TradingState):
 		self.program_params = {"data_length": 200,}
 		# ------------------------ Data Needed for operations ------------------------ #
-		self.DATA = np.zeros((6,6,self.program_params["data_length"])) #NOTE - 6 products , 4 data types, 100 entries
+		self.DATA = np.zeros((7,6,self.program_params["data_length"])) #NOTE - 6 products , 4 data types, 100 entries
 		self.OPEN_POSITIONS = {prod:{} for prod in self.PRODUCTS.keys()}
 		self.HUMIDITY_CHANGE = 0
 		self.SUNLIGHT_STEPS = 0
@@ -455,7 +428,7 @@ class Trader:
 		# -------------------------------- Update Data ------------------------------- #
 		self.updateData()
 		self.updatePositions()
-		#self.calculatePosition()
+		self.calculatePosition()
 		# --------------------------- 2. Execute New Trades -------------------------- #
 
 		#self.tradeAMETHYSTS()
