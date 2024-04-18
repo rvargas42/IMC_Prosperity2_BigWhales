@@ -104,7 +104,7 @@ p, locations_map, choices, profit_map,numberExpeditions = run_simulation(int(inp
 # Suponiendo que tienes las listas 'loc', 'profits' y 'occ'
 loc = list(locations_map.keys())
 occ = numberExpeditions
-profits = np.array((list(profit_map.values()))) / np.array(occ)
+profits = np.array(list(profit_map.values())) / np.array(occ)
 
 
 

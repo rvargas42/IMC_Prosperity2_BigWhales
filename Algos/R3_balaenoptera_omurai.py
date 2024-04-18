@@ -54,6 +54,9 @@ class Trader:
 			"ROSES":0.34
 		}
 	}
+	FILTERING = {
+		"STARFRUIT":11,"AMETHYSTS":11,"ORCHIDS":11, "GIFT_BASKET": 3, "CHOCOLATE":4, "STRAWBERRIES": 20, "ROSES": 11
+	}
 	# ----------------- Utils class with tools to manipulate data ---------------- #
 	class Utils:
 		@staticmethod
@@ -90,19 +93,7 @@ class Trader:
 			return OBI
 
 		@staticmethod
-		def optimalInventory(data, position, product) -> tuple:
-			current_position : int = np.abs(position.get(product, 0))
-			desired_position : int = int(Trader.OPTIMUM_W[product] * 20)
-			q = current_position - desired_position
-			return q
-		
-		@staticmethod
-		def positionsTracker(state, data): #TODO: create a list of filled trades by price so that they are closed when current price is above/bellow market
-			'''constructs and order tracking data structure to be able to get in/out of trades correctly'''
-			pass
-
-		@staticmethod
-		def savitzky_golay(y, window_size=3, order=1, deriv=0, rate=1): #TODO: implement a model that takes the gradiend of the predictions and then filters it to take leading indicator
+		def savitzky_golay(y, window_size=11, order=1, deriv=0, rate=1):
 			try:
 				window_size = np.abs(np.int16(window_size))
 				order = np.abs(np.int16(order))
@@ -122,7 +113,7 @@ class Trader:
 			firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
 			lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
 			y = np.concatenate((firstvals, y, lastvals))
-			preds = np.convolve( m[::-1], y, mode='valid')
+			preds = np.convolve(m[::-1], y, mode='valid')
 			return preds
 
 	# --------- Class contianing quoting, filtering and any kind of model -------- #
@@ -132,22 +123,28 @@ class Trader:
 		Strategy: Calculate a mean price and sell or buy given a distance to price and OBI
 		'''
 		orders : List[Order] = []
-		AMETHYSTS = "AMETHYSTS"
+		AMETHYSTS, data_key = "AMETHYSTS", self.PRODUCTS["STARFRUIT"]
+		maxShort, maxLong = self.maxOrderSize(AMETHYSTS)
 		order_depth: OrderDepth = self.state.order_depths[AMETHYSTS]
 		BookImbalance = self.Utils.OrderBookImbalance(order_depth)
 		maxOrderSize = self.maxOrderSize(AMETHYSTS)
-
+		amethysts = self.DATA[data_key]
 		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
 		mid_price = self.Utils.midPrice(order_depth)
 
 		reservation_bid, reservation_ask, mean = 9999, 10001, 10000
-		
-		if mid_price < reservation_bid:
-			order = Order(AMETHYSTS, reservation_bid, int(maxOrderSize[1]))
-			orders.append(order)
-		if mid_price > reservation_ask:
-			order = Order(AMETHYSTS, reservation_ask, int(maxOrderSize[0]))
-			orders.append(order)
+		spread = best_ask-best_bid
+		savgol_filter = amethysts[1]
+		if best_ask <= mean:
+			orders.append(Order(AMETHYSTS, int(best_ask), maxLong))
+			orders.append(Order(AMETHYSTS, 1002, -maxLong))
+			self.result[AMETHYSTS].extend(orders)
+			return
+		if best_bid >= savgol_filter[self.dataTime]:
+			orders.append(Order(AMETHYSTS, int(best_ask), maxShort))
+			orders.append(Order(AMETHYSTS, 9998, -maxShort))
+			self.result[AMETHYSTS].extend(orders)
+			return
 
 		self.result[AMETHYSTS].extend(orders)
 
@@ -156,31 +153,56 @@ class Trader:
 
 		'''
 		STARFRUIT, data_key = "STARFRUIT", self.PRODUCTS["STARFRUIT"]
+		starfruit = self.DATA[data_key]
+		maxShort, maxLong = self.maxOrderSize(STARFRUIT)
 		order_depth: OrderDepth = self.state.order_depths[STARFRUIT]
 		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
 		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
-		spread = best_ask - best_bid
-		depth : int = self.Utils.getDepth(order_depth)
-		data = self.DATA[data_key]
-		maxShort, maxLong = self.maxOrderSize(STARFRUIT)
+		Market_sellQ, Market_buyQ = list(order_depth.sell_orders.values()), list(order_depth.buy_orders.values())
+		print("Total market Q (sell/buy): ", sum(Market_sellQ), sum(Market_buyQ))
 		mid_price = self.DATA[data_key][0][self.dataTime]
-		print("mid_price: ",mid_price)
-		# ---------------- Trade volatility with savitsky golay model ---------------- #
-		fair_price = self.DATA[data_key][1][self.dataTime]
-		print("mid_price: ",mid_price)
-
+		# --------------------- We want to max our inv by the end -------------------- #
 		orders = []
-		if self.time > 0:
-			trend = (self.DATA[data_key][0][self.dataTime] - self.DATA[data_key][0][0]) / self.DATA[data_key][0][0]
+		prices = starfruit[0]
+		filt = starfruit[1]
+		gradient = starfruit[2]
+		
+		if self.time < 11:
+			return
+		
+		# if int(-maxShort*0.80) >= Market_buyQ[0] and best_bid - 1 > savgol_filter[self.dataTime]:
+		# 	orders.append(Order(STARFRUIT, best_bid, -Market_buyQ[0]-1))
+		# 	orders.append(Order(STARFRUIT, best_bid - 2, maxLong))
+		# 	self.result[STARFRUIT].extend(orders)
+		# 	return
+		# if int(-maxLong*0.80) >= Market_sellQ[0] and best_ask + 1 < savgol_filter[self.dataTime]:
+		# 	orders.append(Order(STARFRUIT, best_ask, -Market_sellQ[0]+1))
+		# 	orders.append(Order(STARFRUIT, best_ask + 2, maxShort))
+		# 	self.result[STARFRUIT].extend(orders)
+		# 	return
+		# if starfruit[0][self.dataTime-1] > best_ask:
+		# 	if self.state.position.get(STARFRUIT,0) < 0:
+		# 		orders.append(Order(STARFRUIT,best_ask,maxLong))
+		# 	self.result[STARFRUIT].extend(orders)
+		# else:
+		# 	orders.append(Order(STARFRUIT, int(starfruit[0][self.dataTime-1]), maxShort))
+		# 	self.result[STARFRUIT].extend(orders)
+		# 	return
+		spread = best_ask - best_bid
+		filt_max, filt_min = int(np.max(filt[-50:])), int(np.min(filt[-50:]))
+		print("threshold: ", filt_min, filt_max)
+		if self.state.position.get(STARFRUIT,0) == 0:
+			if best_ask < filt[self.dataTime] and np.isclose(best_ask,mid_price,atol=1):
+				print("LONG: mid_price, ask, bid, filter, gradient: ",mid_price,best_ask, best_bid,filt[self.dataTime], gradient[self.dataTime])
+				orders.append(Order(STARFRUIT, int(best_ask), -int(best_ask_Q*0.80)))
+				self.result[STARFRUIT].extend(orders)
+				return
+			if best_bid > filt[self.dataTime] and np.isclose(best_bid,mid_price,atol=1):
+				print("SHORT: mid_price, ask, bid, filter, gradient: ",mid_price,best_ask, best_bid,filt[self.dataTime], gradient[self.dataTime])
+				orders.append(Order(STARFRUIT, int(best_bid), -int(best_bid_Q*0.80)))
+				self.result[STARFRUIT].extend(orders)
+				return
 		else:
-			return
-		if best_ask < fair_price:
-			orders.append(Order(STARFRUIT, best_bid, maxLong))
-			self.result[STARFRUIT].extend(orders)
-			return
-		if best_bid > fair_price:
-			orders.append(Order(STARFRUIT, best_ask, maxShort))
-			self.result[STARFRUIT].extend(orders)
 			return
 
 	def tradeORCHIDS(self):
@@ -256,24 +278,140 @@ class Trader:
 			self.result[ORCHIDS].extend(orders)
 			return
 		# -------------------------- free arbitrage entries -------------------------- #
-		if savgol_preds[-1] < 0: #case: our island orchid market > south
-			orders.append(Order(ORCHIDS, int(whale_bid), -1))
-			self.result[ORCHIDS].extend(orders)
-			self.conversions = 1
-			return
-		if PnL_short > 0:
+		if PnL_long > 0 and self.state.position.get(ORCHIDS, 0) >= 2:
 			orders.append(Order(ORCHIDS, int(whale_bid), 1))
 			self.result[ORCHIDS].extend(orders)
 			self.conversions = -1
 			return
+		if PnL_short > 0 and self.state.position.get(ORCHIDS, 0) >= 2:
+			orders.append(Order(ORCHIDS, int(whale_bid), -1))
+			self.result[ORCHIDS].extend(orders)
+			self.conversions = 1
+			return
 
-	def tradeBASCKET(self):
+	def tradeCHOCOBASKET(self):
+		BASKET, CHOCO = "GIFT_BASKET", "CHOCOLATE"
+		basket_depth, choco_depth = self.state.order_depths["GIFT_BASKET"], self.state.order_depths["CHOCOLATE"]
+		basket_bid, basket_ask = next(iter(basket_depth.buy_orders)), next(iter(basket_depth.sell_orders))
+		choco_bid, choco_ask = next(iter(choco_depth.buy_orders)), next(iter(choco_depth.sell_orders))
+		maxChocoShort, maxChocoLong = self.maxOrderSize("CHOCOLATE")
+		maxBasketShort, maxBasketLong = self.maxOrderSize("GIFT_BASKET")
+		basket_key, choco_key = self.PRODUCTS["GIFT_BASKET"], self.PRODUCTS["CHOCOLATE"]
+		mp_basket_norm, mp_choco_norm = ((self.DATA[basket_key][0] - np.mean(self.DATA[basket_key][0]))/np.std(self.DATA[basket_key][0])), ((self.DATA[choco_key][0] - np.mean(self.DATA[choco_key][0]))/np.std(self.DATA[choco_key][0]))
+		spread = mp_basket_norm[self.dataTime] - mp_choco_norm[self.dataTime]
+		basket_orders = []
+		choco_orders = []
+
+		print("Pair Spread: ", spread)
+
+		if spread > 0:
+				basket_orders.append(Order(BASKET, int(basket_bid),int(10)))
+				self.result[BASKET].extend(basket_orders)
+				choco_orders.append(Order(CHOCO, int(choco_ask),int(-10)))
+				self.result[CHOCO].extend(choco_orders)
+		
+		if spread < 0:
+				basket_orders.append(Order(BASKET, int(basket_ask),int(10)))
+				self.result[BASKET].extend(basket_orders)
+				choco_orders.append(Order(CHOCO, int(choco_bid),int(-10)))
+				self.result[CHOCO].extend(choco_orders)
+
+	
+	def tradeBASCKET(self): #TODO - 
 		'''
 		Take a set of goods and trade them in a basket aka portfolio.
 		Objective: optimize the weights of this goods to minimize variance
 		from trading data it seems that products from basket tend to revert to the basket price
 		'''
+		BASKET, data_key, orders = "GIFT_BASKET", self.PRODUCTS["GIFT_BASKET"], []
+		order_depth: OrderDepth = self.state.order_depths[BASKET]
+		gift_basket = self.DATA[data_key]
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		mid_price = (best_bid + best_ask)/2
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		maxShort, maxLong = self.maxOrderSize(BASKET)
+		gradient = gift_basket[2]
 
+		if best_ask < gift_basket[1][self.dataTime] and np.isclose(best_ask,mid_price,atol=1):
+			orders.append(Order(BASKET, best_ask, int(maxLong)))
+			self.result[BASKET].extend(orders)
+			return
+		if best_bid > gift_basket[1][self.dataTime] and np.isclose(best_bid,mid_price,atol=1):
+			orders.append(Order(BASKET, best_bid, int(maxShort)))
+			self.result[BASKET].extend(orders)
+			return
+	
+	def tradeROSES(self): #TODO - 
+		'''
+		Take a set of goods and trade them in a basket aka portfolio.
+		Objective: optimize the weights of this goods to minimize variance
+		from trading data it seems that products from basket tend to revert to the basket price
+		'''
+		ROSES, data_key, orders = "ROSES", self.PRODUCTS["ROSES"], []
+		order_depth: OrderDepth = self.state.order_depths[ROSES]
+		gift_basket = self.DATA[data_key]
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		mid_price = (best_bid + best_ask)/2
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		maxShort, maxLong = self.maxOrderSize(ROSES)
+		gradient = gift_basket[2]
+
+		if best_ask < gift_basket[1][self.dataTime]:
+			orders.append(Order(ROSES, best_ask, int(maxLong)))
+			self.result[ROSES].extend(orders)
+			return
+		if best_bid > gift_basket[1][self.dataTime]:
+			orders.append(Order(ROSES, best_bid, int(maxShort)))
+			self.result[ROSES].extend(orders)
+			return
+
+	def tradeCHOCO(self): #TODO - 
+		'''
+		Take a set of goods and trade them in a basket aka portfolio.
+		Objective: optimize the weights of this goods to minimize variance
+		from trading data it seems that products from basket tend to revert to the basket price
+		'''
+		CHOCO, data_key, orders = "CHOCOLATE", self.PRODUCTS["CHOCOLATE"], []
+		order_depth: OrderDepth = self.state.order_depths[CHOCO]
+		gift_basket = self.DATA[data_key]
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		mid_price = (best_bid + best_ask)/2
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		maxShort, maxLong = self.maxOrderSize(CHOCO)
+		gradient = gift_basket[2]
+
+		if best_ask < gift_basket[1][self.dataTime]:
+			orders.append(Order(CHOCO, best_ask, int(maxLong)))
+			self.result[CHOCO].extend(orders)
+			return
+		if best_bid > gift_basket[1][self.dataTime]:
+			orders.append(Order(CHOCO, best_bid, int(maxShort)))
+			self.result[CHOCO].extend(orders)
+			return
+
+	def tradeSTROBERR(self): #TODO - 
+		'''
+		Take a set of goods and trade them in a basket aka portfolio.
+		Objective: optimize the weights of this goods to minimize variance
+		from trading data it seems that products from basket tend to revert to the basket price
+		'''
+		STROBERR, data_key, orders = "STRAWBERRIES", self.PRODUCTS["STRAWBERRIES"], []
+		order_depth: OrderDepth = self.state.order_depths[STROBERR]
+		gift_basket = self.DATA[data_key]
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		mid_price = (best_bid + best_ask)/2
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		maxShort, maxLong = self.maxOrderSize(STROBERR)
+		gradient = gift_basket[2]
+
+		if best_ask < gift_basket[1][self.dataTime]:
+			orders.append(Order(STROBERR, best_ask, int(maxLong)))
+			self.result[STROBERR].extend(orders)
+			return
+		if best_bid > gift_basket[1][self.dataTime]:
+			orders.append(Order(STROBERR, best_bid, int(maxShort)))
+			self.result[STROBERR].extend(orders)
+			return
 
 	def maxOrderSize(self, product):
 		limit = Trader.LIMITS[product]
@@ -302,10 +440,10 @@ class Trader:
 				if time < self.program_params["data_length"] - 1:
 					self.DATA[i][0][time] = whale_mid_price
 					self.DATA[i][4][time] = south_mid_price
-					if time > 2:
+					if time > 10:
 						preds = Trader.Utils.savitzky_golay(self.DATA[i][0][:time+1])
 						self.DATA[i][1][:time+1] = preds
-						south_preds = Trader.Utils.savitzky_golay(self.DATA[i][3][:time+1])
+						south_preds =Trader.Utils.savitzky_golay(self.DATA[i][3][:time+1])
 						self.DATA[i][1][:time+1] = south_preds
 					self.DATA[i][2][time] = sunlight
 					self.DATA[i][3][time] = humidity
@@ -326,14 +464,14 @@ class Trader:
 			else:
 				mid_price = Trader.Utils.midPrice(self.state.order_depths[prod[0]])
 				time = self.dataTime
-				if time < self.program_params["data_length"]-1:
-					self.DATA[i][0][time] = mid_price
-					if time > 2:
-						preds = Trader.Utils.savitzky_golay(self.DATA[i][0][:time+1])
+				if time < 199:
+					self.DATA[i][0][self.dataTime] = mid_price
+					if time > 10:
+						preds = Trader.Utils.savitzky_golay(self.DATA[i][0][:self.dataTime+1])
 						gradient = np.gradient(preds)
-						self.DATA[i][1][:time+1] = preds
-						self.DATA[i][2][:time+1] = gradient
-				if time == self.program_params["data_length"]-1:
+						self.DATA[i][1][:self.dataTime+1] = preds
+						self.DATA[i][2][:self.dataTime+1] = gradient
+				if time == 199:
 					self.DATA[i][0] = np.roll(self.DATA[i][0],-1)
 					self.DATA[i][0][time] = mid_price
 					preds = Trader.Utils.savitzky_golay(self.DATA[i][0])
@@ -342,7 +480,7 @@ class Trader:
 					self.DATA[i][2] = gradient
 					#after updating midprice we predict for the whole 100 entries
 
-	def calculatePosition(self, takeProfit=0.009, stopLoss=0):
+	def calculatePosition(self, takeProfit=0.1, stopLoss=0.1):
 		'''
 		Method that takes OPEN_POSITIONS first calculates profitability
 		of each position and exteds results with close_orders
@@ -356,10 +494,11 @@ class Trader:
 			position = self.state.position.get(product, 0)
 			best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
 			returns = 0
+			market_price = 0
 			for price, quant in orders.items():
 				market_price = best_ask if quant > 0 else best_bid
 				profit = ((market_price - price)/price) if quant >= 0 else ((market_price - price)/market_price)
-				returns += profit * quant
+				returns += profit
 			# ---------------------- Closing Orders at market price: --------------------- #
 			if takeProfit <= returns or returns <= -stopLoss:
 				order = Order(product, market_price, -position)
@@ -410,7 +549,7 @@ class Trader:
 	def run(self, state: TradingState):
 		self.program_params = {"data_length": 200,}
 		# ------------------------ Data Needed for operations ------------------------ #
-		self.DATA = np.zeros((7,6,self.program_params["data_length"])) #NOTE - 6 products , 4 data types, 100 entries
+		self.DATA = np.zeros((7,7,200)) #NOTE - 6 products , 4 data types, 100 entries
 		self.OPEN_POSITIONS = {prod:{} for prod in self.PRODUCTS.keys()}
 		self.HUMIDITY_CHANGE = 0
 		self.SUNLIGHT_STEPS = 0
@@ -428,13 +567,16 @@ class Trader:
 		# -------------------------------- Update Data ------------------------------- #
 		self.updateData()
 		self.updatePositions()
-		self.calculatePosition()
+		#self.calculatePosition()
 		# --------------------------- 2. Execute New Trades -------------------------- #
-
-		#self.tradeAMETHYSTS()
-		self.tradeSTARFRUIT()
-		#self.tradeORCHIDS()
-
+		# self.tradeAMETHYSTS()
+		# self.tradeSTARFRUIT()
+		# self.tradeORCHIDS()
+		# self.tradeBASCKET()
+		# self.tradeCHOCO()
+		# self.tradeROSES()
+		# self.tradeSTROBERR()
+		self.tradeCHOCOBASKET()
 		# ------------------------ 3. Optimize Inventory Risk ------------------------ #
 		#self.optimizeInventory()
 		# ----------------------- 4. Enconde and Return Results ---------------------- #

@@ -242,7 +242,7 @@ class Backtest(Config):
 			bullish = np.random.choice([0,1])
 			bearish = 0 if bullish == 1 else 1
 			bot = Bot(bullish=bullish,bearish=bearish,random_state=np.random.randint(3,15))
-			bots.append(bot)		
+			bots.append(bot)
 		return bots
 	
 	def BotExecution(self) -> List[Order]:
