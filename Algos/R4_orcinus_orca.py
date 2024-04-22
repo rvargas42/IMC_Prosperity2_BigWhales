@@ -19,17 +19,7 @@ import statistics as st
 import jsonpickle as jp
 
 class Trader:
-	
-	'''
-	DATA: matrix containing historic data for all products and features
-	shape(3,2,100) -> (3) dimensions or products
-			  -> (2) features: mid_price, kalman predictions,
-			  -> (100) entries: lenght of data 
-	'''
-	# ------------------------------- Encoded Data ------------------------------- #
-	# 1 dimension per product (3), number of features: midprice,kf_pred,... / length
-	# -------------------------------- Helper Data ------------------------------- #
-	PRODUCTS = {"STARFRUIT":0,"AMETHYSTS":1,"ORCHIDS":2, "GIFT_BASKET": 3, "CHOCOLATE":4, "STRAWBERRIES": 5, "ROSES": 6}
+	PRODUCTS = {"STARFRUIT":0,"AMETHYSTS":1,"ORCHIDS":2, "GIFT_BASKET": 3, "CHOCOLATE":4, "STRAWBERRIES": 5, "ROSES": 6, "COCONUT":7,"COCONUT_COUPON":8}
 	LIMITS = {
 		"STARFRUIT": 20,
 		"AMETHYSTS": 20,
@@ -38,6 +28,8 @@ class Trader:
 		"STRAWBERRIES":350,
 		"ROSES":60,
 		"GIFT_BASKET":60,
+		"COCONUT": 300,
+		"COCONUT_COUPON": 600,
 	}
 	OPTIMUM_W = {
 		"STARFRUIT": 0.261,
@@ -144,9 +136,6 @@ class Trader:
 		return best_value, total_volume
 
 	def tradeAMETHYSTS(self):
-		'''Amethysts seem to be capped between two prices: [9996.5 - 10003.5] which is a spread of 7$SH
-		Strategy: Calculate a mean price and sell or buy given a distance to price and OBI
-		'''
 		orders : List[Order] = []
 		AMETHYSTS, data_key = "AMETHYSTS", self.PRODUCTS["STARFRUIT"]
 		maxShort, maxLong = self.maxOrderSize(AMETHYSTS)
@@ -174,48 +163,38 @@ class Trader:
 		self.result[AMETHYSTS].extend(orders)
 
 	def tradeSTARFRUIT(self):
-		'''
-
-		'''
 		STARFRUIT, data_key = "STARFRUIT", self.PRODUCTS["STARFRUIT"]
+		filter_degree = 9
 		starfruit = self.DATA[data_key]
 		order_depth: OrderDepth = self.state.order_depths[STARFRUIT]
+		print("order_book",order_depth.buy_orders, order_depth.sell_orders)
+		bids, asks = self.DATA[data_key][3], self.DATA[data_key][4]
+		sav_bid, sav_asks = Trader.Utils.savitzky_golay(bids,order=filter_degree), Trader.Utils.savitzky_golay(asks,order=filter_degree)
+		maxShort, maxLong = self.maxOrderSize(STARFRUIT)
 		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
 		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
-		buyP, buyQ = self.computeQuote(order_depth,buy=1)
-		sellP, sellQ = self.computeQuote(order_depth, buy=0)
-		maxShort, maxLong = self.maxOrderSize(STARFRUIT)
-		# --------------------- We want to max our inv by the end -------------------- #
-		prices = np.int32(starfruit[0])
-		savgol = np.int32(starfruit[1])
-		# ----------------------- Two conditions to market take ---------------------- #
-
-		buy_Q = np.min([-buyQ, maxLong])
-		sell_Q = np.max([-sellQ, maxShort])
-		spread = best_ask - best_bid
-		print("mid_price: ", int((best_ask+best_bid)/2))
+		order_imbalance = Trader.Utils.OrderBookImbalance(order_depth)
+		buyprice, buyvolume = self.computeQuote(order_depth,buy=1)
+		sellprice, sellvolume = self.computeQuote(order_depth,buy=0)
+		net_imbalance = buyvolume-sellvolume
+		# ---------- We use OBI to place orders in both sides of the spread ---------- #
+		spread = asks[self.dataTime]-bids[self.dataTime]
 		print("spread: ", spread)
-		current_position = self.state.position.get(STARFRUIT,0)
-		own_trades = self.state.own_trades.get(STARFRUIT)
-		last_execprice = self.meanLastExecPrice(STARFRUIT)
-		print("last_price: ", last_execprice)
+		# if self.calculatePosition(STARFRUIT, 0.0001, 0.00009) == 1: #if there are close orders opened we avoid executing new orders
+		# 	return
 
-		if best_ask < savgol[self.dataTime] and spread == 1:
-			# ------------------------- We take long at best ask ------------------------- #
-			take_order = Order(STARFRUIT, int(best_ask), int(best_ask_Q))
-			orders = [
-				take_order,
-			]
-			self.result[STARFRUIT].extend(orders)
-			return
-		if best_bid > savgol[self.dataTime] and spread == 1:
-			# ------------------------------- We take short ------------------------------ #
-			take_order = Order(STARFRUIT, int(best_bid), int(best_bid_Q))
-			orders = [
-				take_order,
-			]
-			self.result[STARFRUIT].extend(orders)
-			return
+		buyP, sellP = int(sav_bid[self.dataTime]), int(sav_asks[self.dataTime])
+		buyQ, sellQ = -order_imbalance*maxLong, -order_imbalance*maxShort
+		if best_bid > sav_asks[self.dataTime]:
+			buyP = int(sav_bid[self.dataTime])-2
+		if best_ask <= sav_bid[self.dataTime]:
+			sellP = int(sav_bid[self.dataTime])+2
+		orders = [
+			Order(STARFRUIT, buyP, int(buyQ)),
+			Order(STARFRUIT, sellP, int(sellQ)),
+		]
+		self.result[STARFRUIT].extend(orders)
+
 
 	def tradeORCHIDS(self):
 		'''
@@ -347,7 +326,6 @@ class Trader:
 				self.result[CHOCO].extend(choco_orders)
 				choco_orders.append(Order(BASKET, int(basket_ask),int(maxBasketLong)))
 				self.result[BASKET].extend(choco_orders)
-
 	
 	def tradeROSES_BASKET(self): #TODO - 
 		'''
@@ -396,6 +374,86 @@ class Trader:
 			]
 			self.result[BASKET].extend(orders)
 			return
+	
+	def tradeCOCONUT(self):
+		
+		if self.time <= 10:
+			return
+		COUPON, COCO, coco_key = "COCONUT_COUPON", "COCONUT", self.PRODUCTS["COCONUT"]
+		order_depth = self.state.order_depths[COCO]
+		print(order_depth.buy_orders, order_depth.sell_orders)
+		position = self.state.position.get(COCO, 0)
+		limit = self.LIMITS[COCO]
+		mid_price = self.DATA[coco_key][0]
+		bid, ask = self.DATA[coco_key][3], self.DATA[coco_key][4]
+		sav_mid = Trader.Utils.savitzky_golay(mid_price,order=1)
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		buy_Qs, sell_Qs = order_depth.buy_orders.values(), order_depth.sell_orders.values()
+		bids, asks = self.DATA[coco_key][3], self.DATA[coco_key][4]
+		sav_bid, sav_asks = Trader.Utils.savitzky_golay(bids,order=1), Trader.Utils.savitzky_golay(asks,order=1)
+		maxShort, maxLong = self.maxOrderSize(COCO)
+		order_imbalance = Trader.Utils.OrderBookImbalance(order_depth)
+
+		buyQ = np.min([maxLong,order_imbalance]) if order_imbalance > 0 else np.max([maxLong,order_imbalance])
+		sellQ =  np.max([maxShort,order_imbalance]) if order_imbalance > 0 else np.min([maxShort,order_imbalance])
+
+		if self.time > 10:
+			trend = np.sign(np.diff(sav_mid[:self.dataTime+1]))
+			trend = np.insert(trend, 0, 0)
+			print(trend)
+		# filled Q array([ 2.,  9.,  5., 10.,  8.,  7.,  6.,  1.,  3.,  4.])
+
+		orders = [
+			Order(COCO, int(sav_bid[self.dataTime]),int(maxLong*order_imbalance)),
+			Order(COCO, int(sav_asks[self.dataTime]),int(maxShort*order_imbalance))
+		]
+		self.result[COCO].extend(orders)
+
+		# if (trend[self.dataTime-1] == 1 or trend[self.dataTime-1]==0) and ask[self.dataTime-1] < sav_bid[self.dataTime-1]:
+		# 	buyQ = int((Q_skew/100) * maxLong) if (maxLong != 0 and Q_skew) else int(maxLong*0.10)
+		# 	print("buyQ: ",buyQ)
+		# 	orders = [
+		# 		Order(COCO, int(sav_bid[self.dataTime]), int(buyQ)),
+		# 	]
+		# 	self.result[COCO].extend(orders)
+		# 	return
+
+		# if trend[self.dataTime-1] == -1 and bid[self.dataTime-1] > sav_asks[self.dataTime-1]:
+		# 	sellQ = int((Q_skew/100) * maxShort) if (maxShort != 0 and Q_skew) else int(maxShort*0.10)
+		# 	print("sellQ: ",sellQ)
+		# 	orders = [
+		# 		Order(COCO, int(sav_asks[self.dataTime]), int(sellQ)),
+		# 	]
+		# 	self.result[COCO].extend(orders)
+		# 	return
+		
+	def tradeCOUPONS(self):
+		COCO, coconut_key = "COCONUT", self.PRODUCTS["COCONUT"]
+		COUPON, coco_key = "COCONUT_COUPON", self.PRODUCTS["COCONUT_COUPON"]
+		order_depth = self.state.order_depths[COUPON]
+		mid_price = self.DATA[coco_key][0]
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		best_bid_Q, best_ask_Q = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		bids, asks = self.DATA[coco_key][3], self.DATA[coco_key][4]
+		sav_bid, sav_asks = Trader.Utils.savitzky_golay(bids,order=1), Trader.Utils.savitzky_golay(asks,order=1)
+		maxShort, maxLong = self.maxOrderSize(COUPON)
+		order_imbalance = Trader.Utils.OrderBookImbalance(order_depth)
+		coconut_position = self.state.position.get("COCONUT",0)
+		# ---------------------------- BlackScholes params --------------------------- #
+		strike = 10000
+		current_asset_price = mid_price[self.dataTime]
+		time_to_expiration = 1/250 #each round is one day
+
+		buyQ, sellQ = maxLong*-order_imbalance, maxShort*-order_imbalance
+		print(self.time)
+		orders = [
+				Order(COUPON, int(sav_bid[self.dataTime]), int(maxShort*0.10)),
+				Order(COUPON, int(sav_asks[self.dataTime]), int(maxLong*0.10))
+		]
+
+		self.result[COUPON].extend(orders)
+
 
 
 	def maxOrderSize(self, product):
@@ -473,7 +531,7 @@ class Trader:
 					self.DATA[i][2] = gradient
 					#after updating midprice we predict for the whole 100 entries
 
-	def calculatePosition(self, takeProfit=0.0001, stopLoss=0.01):
+	def calculatePosition(self, product, takeProfit=0.0001, stopLoss=0.01):
 		'''
 		Method that takes OPEN_POSITIONS first calculates profitability
 		of each position and exteds results with close_orders
@@ -481,23 +539,26 @@ class Trader:
 		given price level. i.e: long +5 @ 100 would be closed with short -5 @ market
 		'''
 		# ------------ 1. Enter positions and perform profit calculations ------------ #
-		for product, orders in self.OPEN_POSITIONS.items():
-			close_orders = []
-			order_depth = self.state.order_depths[product]
-			position = self.state.position.get(product, 0)
-			best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
-			returns = 0
-			market_price = 0
-			for price, quant in orders.items():
-				market_price = best_ask if quant > 0 else best_bid
-				profit = ((market_price - price)/price) if quant >= 0 else ((market_price - price)/market_price)
-				returns += profit
-			# ---------------------- Closing Orders at market price: --------------------- #
-			if takeProfit <= returns or returns <= -stopLoss:
-				order = Order(product, market_price, -position)
+		close_orders = []
+		order_depth = self.state.order_depths[product]
+		position = self.state.position.get(product, 0)
+		best_bid, best_ask = next(iter(order_depth.buy_orders)), next(iter(order_depth.sell_orders))
+		best_bidQ, best_askQ = next(iter(order_depth.buy_orders.values())), next(iter(order_depth.sell_orders.values()))
+		market_price = 0
+		maxShort, maxLong = self.maxOrderSize(product=product)
+		for price, quant in self.OPEN_POSITIONS[product].items():
+			market_price = best_ask if quant > 0 else best_bid
+			profit = ((market_price - price)/price) if quant > 0 else ((price-market_price)/market_price)
+			print("profit: ",profit)
+		# ---------------------- Closing Orders at market price: --------------------- #
+			if takeProfit <= profit or profit <= -stopLoss:
+				order = Order(product, market_price, -int(quant))
 				close_orders.append(order)
-			print(close_orders)
-			self.result[product].extend(close_orders) #this will be the orders that zero out our position
+		if len(close_orders) > 0:
+			print("close_orders: ", close_orders)
+			return close_orders
+		else:
+			return None
 
 	def updatePositions(self):
 		'''
@@ -516,21 +577,15 @@ class Trader:
 			for trade in trade_list:
 				if int(trade.timestamp / 100) == self.time - 1:#Check for Trade objects that are pertinent to previous tstamp
 					P = int(trade.price)
-					Q = int(-trade.quantity) if trade.seller == "SUBMISSION" else int(trade.quantity)
+					Q = int(-trade.quantity) if trade.seller == "SUBMISSION" else (int(trade.quantity) if trade.buyer == "SUBMISSION" else None)
 					if Q < 0:
 						maxQ = np.max([maxShort, Q])
 						trades[P] = trades.get(P, 0)
-						if trades[P] < 0:
-							trades[P] = maxQ
-						else:
-							trades[P] += Q
+						trades[P] += Q
 					else:
 						maxQ = np.min([maxLong, Q])
 						trades[P] = trades.get(P, 0)
-						if trades[P] > 0:
-							trades[P] = maxQ
-						else:
-							trades[P] += Q
+						trades[P] += Q
 				else:
 					continue
 			#NOTE - This method nets out positions that are same quantity
@@ -542,38 +597,41 @@ class Trader:
 	def run(self, state: TradingState):
 		self.program_params = {"data_length": 200,}
 		# ------------------------ Data Needed for operations ------------------------ #
-		self.DATA = np.zeros((7,7,200)) #NOTE - 6 products , 4 data types, 100 entries
-		self.GIFTBASKET_OPT_PARAMS = np.zeros((3,3,1)) #3 products, (mean, std, weights)
+		self.DATA = np.zeros((9,7,200)) #NOTE - 6 products , 4 data types, 100 entries
 		self.OPEN_POSITIONS = {prod:{} for prod in self.PRODUCTS.keys()}
 		self.HUMIDITY_CHANGE = 0
 		self.SUNLIGHT_STEPS = 0
 		self.ORCHIDS_INVENTORY_PRICE = 0
+		self.COCO_dump = 0
+		self.COCO_last_dump = 0
+		self.COCO_last_pump = 0
 		# -------------- Instance variables to be accessed and modified -------------- #
 		self.result : Dict = {prod:[] for prod in self.PRODUCTS.keys()}
 		self.state = state
 		self.time = int(state.timestamp / 100)
 		self.dataTime = np.min([self.time, self.program_params["data_length"]-1])
-		self.conversions = 1
+		self.conversions = 0
 		if not self.state.traderData:
 			self.state.TraderData = self.DATA
 		else:
-			self.DATA, self.OPEN_POSITIONS, self.HUMIDITY_CHANGE, self.SUNLIGHT_STEPS, self.ORCHIDS_INVENTORY_PRICE, self.GIFTBASKET_OPT_PARAMS = jp.decode(self.state.traderData, keys=True) #NOTE - OPEN_POSITIONS HAS KEYS AS STR AFTER DECODING
+			self.DATA, self.OPEN_POSITIONS, self.HUMIDITY_CHANGE, self.SUNLIGHT_STEPS, self.ORCHIDS_INVENTORY_PRICE, self.COCO_dump, self.COCO_last_dump, self.COCO_last_pump = jp.decode(self.state.traderData, keys=True) #NOTE - OPEN_POSITIONS HAS KEYS AS STR AFTER DECODING
 		# -------------------------------- Update Data ------------------------------- #
 		self.updateData()
 		self.updatePositions()
-		#self.calculatePosition()
 		# --------------------------- 2. Execute New Trades -------------------------- #
-		# self.tradeAMETHYSTS()
+		#self.tradeAMETHYSTS()
 		#self.tradeSTARFRUIT()
-		# self.tradeORCHIDS()
-		# self.tradeBASCKET()
-
+		#self.tradeORCHIDS()
+		#self.tradeBASCKET()
 		#self.tradeROSES_BASKET()
-		self.tradeSTRAWBERR_BASKET()
-		self.tradeCHOCO_BASKET()
+		#self.tradeSTRAWBERR_BASKET()
+		#self.tradeCHOCO_BASKET()
 		#self.tradeBASKET()
+  
+		self.tradeCOCONUT()
+		#self.tradeCOUPONS()
 		# ----------------------- 4. Enconde and Return Results ---------------------- #
-		data2encode = (self.DATA, self.OPEN_POSITIONS, self.HUMIDITY_CHANGE, self.SUNLIGHT_STEPS, self.ORCHIDS_INVENTORY_PRICE, self.GIFTBASKET_OPT_PARAMS)
+		data2encode = (self.DATA, self.OPEN_POSITIONS, self.HUMIDITY_CHANGE, self.SUNLIGHT_STEPS, self.ORCHIDS_INVENTORY_PRICE, self.COCO_dump, self.COCO_last_dump, self.COCO_last_pump)
 		traderData = jp.encode(data2encode, keys=True)
 		return self.result, self.conversions, traderData
 	
