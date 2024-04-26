@@ -65,8 +65,6 @@ class Backtest(Config):
 		self.OrderBookStructure = {k:{"BUY":{},"SELL":{}} for k in self.listings} #searchable structure to match orders and edit matched objects
 		self.Matched = []
 
-
-
 		try:
 			module_name = f'Algos.{name[:-3] if name.endswith(".py") else name}'
 			print("running algo: ", module_name)
